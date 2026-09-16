@@ -1,0 +1,579 @@
+import { useState, useEffect, useRef, useCallback } from 'react';
+import axios from 'axios';
+import { MicrophoneIcon, XMarkIcon, CheckCircleIcon, ArrowRightIcon } from '@heroicons/react/24/outline';
+import { SparklesIcon } from '@heroicons/react/24/solid';
+
+type Timer = ReturnType<typeof setTimeout>;
+
+interface VoiceAssistantProps {
+  isOpen: boolean;
+  onClose: () => void;
+  apiBase: string;
+}
+
+interface SpeechRecognitionEvent {
+  resultIndex: number;
+  results: {
+    [key: number]: {
+      [key: number]: { transcript: string };
+      isFinal: boolean;
+    };
+    length: number;
+  };
+}
+
+interface SpeechRecognitionErrorEvent {
+  error: string;
+}
+
+const LOCALIZED_QUESTIONS: Record<string, string[]> = {
+  english: [
+    "What type of emergency are you facing? For example: flood, fire, medical, food shortage, or water crisis.",
+    "How many people are affected approximately?",
+    "What is your location? Please say your city and area name.",
+    "On a scale of 1 to 10, how urgent is this situation?"
+  ],
+  hindi: [
+    "आप किस प्रकार के आपातकाल का सामना कर रहे हैं? उदाहरण के लिए: बाढ़, आग, चिकित्सा, या पानी का संकट।",
+    "लगभग कितने लोग प्रभावित हैं?",
+    "आपका स्थान क्या है? कृपया अपने शहर और क्षेत्र का नाम बताएं।",
+    "1 से 10 के पैमाने पर, यह स्थिति कितनी जरूरी है?"
+  ],
+  marathi: [
+    "तुम्हाला कोणत्या प्रकारची अडचण येत आहे? उदाहरणार्थ: पूर, आग, मेडिकल इमर्जन्सी, किंवा पाण्याची टंचाई.",
+    "अंदाजे किती लोकांना मदतीची गरज आहे?",
+    "तुमचं लोकेशन काय आहे? कृपया तुमच्या शहराचं आणि एरियाचं नाव सांगा.",
+    "एक ते दहाच्या स्केलवर ही परिस्थिती किती गंभीर आहे?"
+  ],
+  tamil: [
+    "நீங்கள் என்ன வகையான அவசரநிலையை எதிர்கொள்கிறீர்கள்? உதாரணத்திற்கு: வெள்ளம், தீ, மருத்துவம், அல்லது தண்ணீர் தட்டுப்பாடு.",
+    "தோராயமாக எத்தனை பேர் பாதிக்கப்பட்டுள்ளனர்?",
+    "உங்கள் இருப்பிடம் என்ன? உங்கள் நகரம் மற்றும் பகுதி பெயரைக் கூறவும்.",
+    "1 முதல் 10 வரையிலான அளவில், இந்த நிலைமை எவ்வளவு அவசரமானது?"
+  ],
+  bengali: [
+    "আপনি কোন ধরণের জরুরি অবস্থার সম্মুখীন হচ্ছেন? উদাহরণস্বরূপ: বন্যা, আগুন, চিকিৎসা, বা জলের সংকট।",
+    "আনুমানিকভাবে কতজন লোক ক্ষতিগ্রস্ত?",
+    "আপনার অবস্থান কী? দয়া করে আপনার শহর এবং এলাকার নাম বলুন।",
+    "1 থেকে 10 এর স্কেলে, এই পরিস্থিতিটি কতটা জরুরি?"
+  ],
+  telugu: [
+    "మీరు ఎలాంటి అత్యవసర పరిస్థితిని ఎదుర్కొంటున్నారు? ఉదాహరణకు: వరద, అగ్ని, వైద్య, లేదా నీటి సంక్షోభం.",
+    "సుమారు ఎంత మంది ప్రభావితమయ్యారు?",
+    "మీ స్థానం ఏమిటి? దయచేసి మీ నగరం మరియు ప్రాంతం పేరు చెప్పండి.",
+    "1 నుండి 10 స్కేల్‌లో ఈ పరిస్థితి ఎంత అత్యవసరం?"
+  ]
+};
+
+const LANG_CONFIG: Record<string, { code: string; label: string }> = {
+  english: { code: 'en-IN', label: 'English' },
+  hindi: { code: 'hi-IN', label: 'Hindi' },
+  marathi: { code: 'mr-IN', label: 'Marathi' },
+  tamil: { code: 'ta-IN', label: 'Tamil' },
+  bengali: { code: 'bn-IN', label: 'Bengali' },
+  telugu: { code: 'te-IN', label: 'Telugu' }
+};
+
+const SUCCESS_TRANSLATIONS: Record<string, { lang: string, text: string }> = {
+  marathi: { lang: 'mr-IN', text: 'तुमची माहिती आम्हाला मिळाली आहे. लवकरच मदत पोहोचवली जाईल. धन्यवाद.' },
+  tamil: { lang: 'ta-IN', text: 'உங்கள் அறிக்கை சமர்ப்பிக்கப்பட்டது. உதவி ஒருங்கிணைக்கப்படுகிறது. நன்றி.' },
+  bengali: { lang: 'bn-IN', text: 'আপনার রিপোর্ট জমা দেওয়া হয়েছে। সাহায্যের সমন্বয় করা হচ্ছে। ধন্যবাদ।' },
+  telugu: { lang: 'te-IN', text: 'మీ నివేదిక సమర్పించబడింది. సహాయం సమన్వయం చేయబడుతోంది. ధన్యవాదాలు.' },
+  hindi: { lang: 'hi-IN', text: 'आपकी रिपोर्ट सबमिट कर दी गई है। सहायता समन्वित की जा रही है। धन्यवाद।' },
+  english: { lang: 'en-US', text: 'Your report has been submitted. Help is being coordinated. Thank you.' }
+};
+
+const parseUserLanguage = (text: string): string | null => {
+  const lower = text.toLowerCase();
+  if (lower.includes('hindi') || lower.includes('indi')) return 'hindi';
+  if (lower.includes('marathi') || lower.includes('arati') || lower.includes('mara') || lower.includes('mura') || lower.includes('rati')) return 'marathi';
+  if (lower.includes('tamil') || lower.includes('tami')) return 'tamil';
+  if (lower.includes('bengali') || lower.includes('bangla') || lower.includes('beng')) return 'bengali';
+  if (lower.includes('telugu') || lower.includes('telu')) return 'telugu';
+  if (lower.includes('english') || lower.includes('eng')) return 'english';
+  return null;
+};
+
+export default function VoiceAssistant({ isOpen, onClose, apiBase }: VoiceAssistantProps) {
+  const [step, setStep] = useState<number>(-2);
+  const [answers, setAnswers] = useState<string[]>([]);
+  const [userLang, setUserLang] = useState<string>("english");
+  const [currentText, setCurrentText] = useState("");
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null);
+  const synthRef = useRef<SpeechSynthesis>(window.speechSynthesis);
+  const silenceTimerRef = useRef<Timer | null>(null);
+  const maxDurationTimerRef = useRef<Timer | null>(null);
+  const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+
+  const stepRef = useRef(step);
+  const answersRef = useRef(answers);
+  const currentTextRef = useRef(currentText);
+  const userLangRef = useRef(userLang);
+  const isOpenRef = useRef(isOpen);
+
+  // The Airlock: Prevents ghost echoes from triggering the next step
+  const isProcessingAnswerRef = useRef(true);
+
+  // Dynamic Ref wrapper to safely use handleNext inside useEffect without causing re-renders
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handleNextRef = useRef<any>(null);
+
+  useEffect(() => {
+    stepRef.current = step;
+    answersRef.current = answers;
+    currentTextRef.current = currentText;
+    userLangRef.current = userLang;
+    isOpenRef.current = isOpen;
+  }, [step, answers, currentText, userLang, isOpen]);
+
+  const clearAllTimers = useCallback(() => {
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    if (maxDurationTimerRef.current) clearTimeout(maxDurationTimerRef.current);
+  }, []);
+
+  const resetFlow = useCallback(() => {
+    setStep(-2);
+    setAnswers([]);
+    setUserLang("english");
+    setCurrentText("");
+    setIsListening(false);
+    setIsSpeaking(false);
+    isProcessingAnswerRef.current = true; // Lock immediately on reset
+  }, []);
+
+  const executeSpeech = useCallback((text: string, lang = 'en-US', onComplete?: () => void) => {
+    if (isMuted || !isOpenRef.current) {
+      if (onComplete) onComplete();
+      return;
+    }
+
+    setIsSpeaking(true);
+    isProcessingAnswerRef.current = true; // Lock the mic input while speaking
+    synthRef.current.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    currentUtteranceRef.current = utterance;
+    utterance.lang = lang;
+    utterance.rate = 1.0;
+
+    const voices = synthRef.current.getVoices();
+    if (voices.length > 0) {
+      const premiumVoice = voices.find(v => v.lang.includes(lang) && (v.name.includes('Google') || v.name.includes('Premium') || v.name.includes('Natural')));
+      if (premiumVoice) {
+        utterance.voice = premiumVoice;
+      } else {
+        let fallbackVoice = voices.find(v => v.lang.includes(lang));
+        if (!fallbackVoice && (lang.includes('mr') || lang.includes('ta') || lang.includes('bn') || lang.includes('te') || lang.includes('gu'))) {
+          fallbackVoice = voices.find(v => v.lang.includes('hi-IN'));
+        }
+        if (fallbackVoice) utterance.voice = fallbackVoice;
+      }
+    }
+
+    let isCanceled = false;
+    const timeout = setTimeout(() => {
+      if (!isCanceled && isOpenRef.current && currentUtteranceRef.current === utterance) {
+        setIsSpeaking(false);
+        if (onComplete) onComplete();
+      }
+    }, 15000);
+
+    utterance.onend = () => {
+      if (isCanceled || !isOpenRef.current || currentUtteranceRef.current !== utterance) return;
+      clearTimeout(timeout);
+      setIsSpeaking(false);
+      currentUtteranceRef.current = null;
+      if (onComplete) onComplete();
+    };
+
+    utterance.onerror = (e) => {
+      if (e.error === 'interrupted' || e.error === 'canceled') return; // Expected when skipping
+      console.error("Speech Synthesis Error", e);
+      if (currentUtteranceRef.current === utterance) {
+        setIsSpeaking(false);
+        if (onComplete) onComplete();
+      }
+    };
+
+    setTimeout(() => {
+      if (isOpenRef.current && !isCanceled && currentUtteranceRef.current === utterance) {
+        synthRef.current.speak(utterance);
+      }
+    }, 50);
+  }, [isMuted]);
+
+  const startListening = useCallback(() => {
+    if (!isOpenRef.current) return;
+
+    // ONLY unlock the system to accept input when the microphone intentionally turns on
+    isProcessingAnswerRef.current = false;
+
+    if (recognitionRef.current) {
+      setCurrentText("");
+      currentTextRef.current = "";
+      setIsListening(true);
+      try {
+        recognitionRef.current.start();
+      } catch (e) {
+        console.debug('Recognition start failed:', e);
+      }
+    }
+  }, []);
+
+  const askLanguage = useCallback(() => {
+    setCurrentText("");
+    executeSpeech(
+      "Which language are you comfortable in answering? Please say English, Hindi, Marathi, Tamil, Bengali, or Telugu.",
+      'en-IN',
+      () => {
+        if (recognitionRef.current) recognitionRef.current.lang = 'en-IN';
+        startListening();
+      }
+    );
+  }, [executeSpeech, startListening]);
+
+  const speakGreeting = useCallback(() => {
+    executeSpeech(
+      "Namaste. Welcome to CommunityPulse Emergency Reporter.",
+      'en-IN',
+      () => {
+        if (stepRef.current === -2) {
+          setStep(-1);
+          askLanguage();
+        }
+      }
+    );
+  }, [executeSpeech, askLanguage]);
+
+  const askQuestion = useCallback((idx: number) => {
+    setCurrentText("");
+    const langKey = userLangRef.current || 'english';
+    const questionText = LOCALIZED_QUESTIONS[langKey][idx];
+    const synthLang = LANG_CONFIG[langKey].code;
+
+    if (recognitionRef.current) {
+      recognitionRef.current.lang = (idx === 2 && userLangRef.current === 'english') ? 'en-IN' : synthLang;
+    }
+
+    executeSpeech(questionText, synthLang, () => {
+      startListening();
+    });
+  }, [executeSpeech, startListening]);
+
+  const submitReport = useCallback(async (finalAnswers: string[]) => {
+    const langKey = userLangRef.current || 'english';
+    const submittingText = {
+      english: "Submitting your report. Please wait.",
+      hindi: "आपकी रिपोर्ट सबमिट की जा रही है। कृपया प्रतीक्षा करें।",
+      marathi: "तुमचा रिपोर्ट सबमिट केला जात आहे. कृपया प्रतीक्षा करा.",
+      tamil: "உங்கள் அறிக்கை சமர்ப்பிக்கப்படுகிறது. தயவுசெய்து காத்திருக்கவும்.",
+      bengali: "আপনার রিপোর্ট জমা দেওয়া হচ্ছে। দয়া করে অপেক্ষা করুন।",
+      telugu: "మీ నివేదిక సమర్పించబడుతోంది. దయచేసి వేచి ఉండండి."
+    }[langKey] || "Submitting your report.";
+
+    executeSpeech(submittingText, LANG_CONFIG[langKey].code);
+    setIsListening(false);
+    isProcessingAnswerRef.current = true; // Permanent lock
+
+    const combinedReport = `Voice Report Transcript:
+Language Setup: ${userLangRef.current}
+Type of emergency: ${finalAnswers[0]}
+People affected: ${finalAnswers[1]}
+Location: ${finalAnswers[2]}
+Urgency (1-10): ${finalAnswers[3]}
+Note: Parse intelligently considering the user spoke in ${userLangRef.current}.`;
+
+    try {
+      await axios.post(`${apiBase}/ingest`, { text: combinedReport });
+      setStep(5);
+      const targetLang = SUCCESS_TRANSLATIONS[langKey];
+
+      executeSpeech(targetLang.text, targetLang.lang, () => {
+        setTimeout(() => {
+          isOpenRef.current = false;
+          onClose();
+        }, 1500); // Faster close
+      });
+    } catch (e) {
+      console.error("Voice report submission failed", e);
+      executeSpeech("Sorry, there was an error submitting your report. Please try again.", 'en-US');
+      setTimeout(() => {
+        isOpenRef.current = false;
+        onClose();
+      }, 3000);
+    }
+  }, [apiBase, executeSpeech, onClose]);
+
+  const handleNext = useCallback(async (answerStr?: string, isExplicitButton = false) => {
+    if (isProcessingAnswerRef.current && !isExplicitButton) {
+      return;
+    }
+
+    isProcessingAnswerRef.current = true;
+    clearAllTimers();
+    synthRef.current.cancel();
+    setIsSpeaking(false);
+
+    const finalAnswer = answerStr || currentTextRef.current;
+
+    if (recognitionRef.current) {
+      try { recognitionRef.current.abort(); } catch (e) { }
+    }
+
+    const currentStep = stepRef.current;
+
+    if (currentStep === -1) {
+      const detectedLang = parseUserLanguage(finalAnswer);
+      if (!detectedLang) {
+        setCurrentText("Language not caught clearly. Please click a button below.");
+        setIsListening(false);
+        isProcessingAnswerRef.current = false;
+        return;
+      }
+      setUserLang(detectedLang);
+      userLangRef.current = detectedLang;
+      setStep(0);
+      stepRef.current = 0;
+      askQuestion(0);
+      return;
+    }
+
+    if (currentStep >= 0 && currentStep < 4) {
+      const newAnswers = [...answersRef.current];
+      newAnswers[currentStep] = finalAnswer || "No answer provided";
+      setAnswers(newAnswers);
+      answersRef.current = newAnswers;
+      const nextStep = currentStep + 1;
+      setStep(nextStep);
+      stepRef.current = nextStep;
+
+      if (nextStep < 4) {
+        askQuestion(nextStep);
+      } else {
+        submitReport(newAnswers);
+      }
+    }
+  }, [askQuestion, submitReport, clearAllTimers]);
+
+  useEffect(() => {
+    handleNextRef.current = handleNext;
+  }, [handleNext]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (SpeechRec) {
+        const recognition = new SpeechRec();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = 'en-US';
+
+        recognition.onresult = (event: SpeechRecognitionEvent) => {
+          let fullTranscript = '';
+          for (let i = 0; i < event.results.length; ++i) {
+            fullTranscript += event.results[i][0].transcript;
+          }
+
+          if (fullTranscript) {
+            setCurrentText(fullTranscript);
+            currentTextRef.current = fullTranscript;
+
+            if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+
+            silenceTimerRef.current = setTimeout(() => {
+              if (currentTextRef.current === fullTranscript) {
+                handleNextRef.current(fullTranscript, false);
+              }
+            }, 2500);
+          }
+        };
+
+        recognition.onstart = () => {
+          setIsListening(true);
+          if (maxDurationTimerRef.current) clearTimeout(maxDurationTimerRef.current);
+          maxDurationTimerRef.current = setTimeout(() => {
+            if (currentTextRef.current === "" || !currentTextRef.current) {
+              handleNextRef.current("No audio detected", false);
+            }
+          }, 14000);
+        };
+
+        recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+          if (event.error !== 'aborted') {
+            console.error("Speech Recognition Error", event.error);
+          }
+          setIsListening(false);
+          clearAllTimers();
+        };
+
+        recognition.onend = () => {
+          setIsListening(false);
+          if (currentTextRef.current && !isProcessingAnswerRef.current) {
+            handleNextRef.current(currentTextRef.current, false);
+          }
+          clearAllTimers();
+        };
+
+        recognitionRef.current = recognition;
+      }
+    }
+
+    return () => {
+      synthRef.current.cancel();
+      if (recognitionRef.current) {
+        try { recognitionRef.current.abort(); } catch (e) { }
+      }
+    };
+  }, [clearAllTimers]);
+
+  useEffect(() => {
+    if (isOpen) {
+      synthRef.current.cancel();
+      synthRef.current.resume();
+
+      setTimeout(() => {
+        resetFlow();
+        speakGreeting();
+      }, 0);
+    } else {
+      synthRef.current.cancel();
+      if (recognitionRef.current) {
+        try { recognitionRef.current.abort(); } catch (e) { }
+      }
+      clearAllTimers();
+
+      setTimeout(() => {
+        setIsSpeaking(false);
+        setIsListening(false);
+      }, 0);
+    }
+  }, [isOpen, speakGreeting, resetFlow, clearAllTimers]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[4000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-zinc-950 border border-white/10 rounded-3xl w-full max-w-lg shadow-[0_0_50px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col relative animate-slide-in">
+
+        <div className="flex items-center justify-between p-5 border-b border-white/5 bg-white/5">
+          <div className="flex items-center gap-3 text-indigo-400 font-bold">
+            <SparklesIcon className="w-5 h-5" />
+            <span className="tracking-wide text-zinc-100">Emergency AI Reporter</span>
+            {step >= 0 && (
+              <span className="px-2 py-0.5 ml-2 bg-indigo-500/20 text-indigo-300 rounded border border-indigo-500/30 text-[10px] uppercase font-bold tracking-widest">
+                Lang: {LANG_CONFIG[userLang]?.label || 'English'}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                const newMuted = !isMuted;
+                setIsMuted(newMuted);
+                if (newMuted) {
+                  synthRef.current.cancel();
+                  setIsSpeaking(false);
+                }
+              }}
+              className={`p-2 rounded-lg border transition-all ${isMuted ? 'bg-rose-500/10 border-rose-500/30 text-rose-400' : 'bg-white/5 border-white/10 text-white/40 hover:text-white'}`}
+              title={isMuted ? "Unmute AI Voice" : "Mute AI Voice"}
+            >
+              {isMuted ? <span className="text-xs">🔇</span> : <span className="text-xs">🔊</span>}
+            </button>
+            <button onClick={() => {
+              isOpenRef.current = false;
+              synthRef.current.pause();
+              synthRef.current.cancel();
+              if (recognitionRef.current) {
+                try { recognitionRef.current.abort(); } catch (e) { }
+              }
+              clearAllTimers();
+              setIsSpeaking(false);
+              setIsListening(false);
+              onClose();
+            }} className="text-white/40 hover:text-white transition-colors bg-white/5 p-2 rounded-lg">
+              <XMarkIcon className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        <div className="p-8 flex flex-col items-center justify-center min-h-[300px] text-center relative">
+          <div className="relative flex justify-center items-center w-32 h-32 mb-8">
+            {isListening && (
+              <>
+                <div className="absolute inset-0 border-[4px] border-indigo-500/20 rounded-full animate-pulse-ring"></div>
+                <div className="absolute inset-0 border-[4px] border-indigo-500/10 rounded-full animate-pulse-ring" style={{ animationDelay: '0.4s' }}></div>
+              </>
+            )}
+            <div className={`w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 ${isListening ? 'bg-indigo-600 shadow-[0_0_30px_rgba(79,70,229,0.6)] scale-110' : isSpeaking ? 'bg-zinc-800 border border-indigo-500/30 animate-pulse' : 'bg-zinc-900 border border-white/5'}`}>
+              {step === 5 ? <CheckCircleIcon className="w-10 h-10 text-emerald-400" /> : <MicrophoneIcon className={`w-10 h-10 ${isListening ? 'text-white animate-bounce' : 'text-zinc-500'}`} />}
+            </div>
+          </div>
+
+          {step === -2 && (
+            <p className="text-xl font-medium text-zinc-300">Initializing Reporter...</p>
+          )}
+
+          {step === -1 && (
+            <div className="w-full flex justify-center flex-col items-center">
+              <span className="text-xs font-bold text-indigo-400 uppercase tracking-widest mb-3">Language Selection</span>
+              <p className="text-lg font-medium text-zinc-200 mb-6 leading-relaxed">
+                Which language are you comfortable in answering? Please say English, Hindi, Marathi, Tamil, Bengali, or Telugu.
+              </p>
+              <div className="h-16 w-full flex items-center justify-center italic text-indigo-300 font-medium bg-indigo-500/5 rounded-xl border border-indigo-500/10 px-4 mb-4">
+                {isListening ? (currentText || "Listening...") : (isSpeaking ? "Speaking..." : "Please wait...")}
+              </div>
+              <div className="flex flex-wrap items-center justify-center gap-2 mt-2">
+                {['English', 'Hindi', 'Marathi', 'Tamil', 'Bengali', 'Telugu'].map(lang => (
+                  <button
+                    key={lang}
+                    onClick={() => handleNext(lang, true)}
+                    className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 transition-colors"
+                  >
+                    {lang}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {step >= 0 && step < 4 && (
+            <div className="w-full flex justify-center flex-col items-center">
+              <span className="text-xs font-bold text-indigo-400 uppercase tracking-widest mb-3">Question {step + 1} of 4</span>
+              <p className="text-lg font-medium text-zinc-200 mb-6 leading-relaxed">
+                {LOCALIZED_QUESTIONS[userLang][step]}
+              </p>
+              <div className="h-16 w-full flex items-center justify-center italic text-indigo-300 font-medium bg-indigo-500/5 rounded-xl border border-indigo-500/10 px-4">
+                {isListening ? (currentText || "Listening...") : (isSpeaking ? "Speaking..." : "Please wait...")}
+              </div>
+            </div>
+          )}
+
+          {step === 5 && (
+            <div className="flex flex-col items-center animate-fade-in">
+              <p className="text-2xl font-bold text-emerald-400 mb-2">Report Submitted</p>
+              <p className="text-zinc-400 leading-relaxed max-w-[280px]">Help is being coordinated. Stay safe.</p>
+            </div>
+          )}
+
+        </div>
+
+        {step >= -1 && step < 4 && (
+          <div className="p-4 bg-white/5 border-t border-white/5 flex justify-between items-center">
+            <div className="text-[10px] text-zinc-500 italic">
+              Tip: You can click the language buttons directly if audio is muted.
+            </div>
+            <button onClick={() => handleNext("Skipped", true)} className="flex items-center gap-1.5 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 rounded-xl text-sm font-bold transition-colors">
+              Skip / Next <ArrowRightIcon className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
