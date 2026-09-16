@@ -82,17 +82,32 @@ export class AIService {
         const response = await model.generateContent(parts);
         const result = JSON.parse(response.response.text());
 
-        // GEOGRAPHICAL VALIDATION (Prevent Hallucinations)
+        // GEOGRAPHICAL VALIDATION & GEOCODING (Prevent Hallucinations)
         if (result.location && result.location.name) {
-          const locName = result.location.name.toLowerCase();
-
-          // Emergency Correction for common Indian cities if AI gets lat/lng wrong
-          if (locName.includes('noida') && (result.location.lat < 28 || result.location.lat > 29)) {
-            result.location.lat = 28.6282; result.location.lng = 77.3649; // Correct Noida Sec 62
-          } else if (locName.includes('mumbai') && (result.location.lat > 20 || result.location.lat < 18)) {
-            result.location.lat = 19.0760; result.location.lng = 72.8777;
-          } else if (locName.includes('delhi') && (result.location.lat < 28 || result.location.lat > 29)) {
-            result.location.lat = 28.6139; result.location.lng = 77.2090;
+          try {
+            const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(result.location.name)}&format=json&limit=1`;
+            const geoResponse = await fetch(url, {
+              headers: { 'User-Agent': 'CommunityPulse/1.0' }
+            });
+            const geoData = await geoResponse.json() as any[];
+            
+            if (geoData && geoData.length > 0) {
+              result.location.lat = parseFloat(geoData[0].lat);
+              result.location.lng = parseFloat(geoData[0].lon);
+              result.isExact = true;
+            } else {
+              // Fallback for common Indian cities if AI gets lat/lng wrong and geocoder fails
+              const locName = result.location.name.toLowerCase();
+              if (locName.includes('noida') && (result.location.lat < 28 || result.location.lat > 29)) {
+                result.location.lat = 28.6282; result.location.lng = 77.3649; // Correct Noida Sec 62
+              } else if (locName.includes('mumbai') && (result.location.lat > 20 || result.location.lat < 18)) {
+                result.location.lat = 19.0760; result.location.lng = 72.8777;
+              } else if (locName.includes('delhi') && (result.location.lat < 28 || result.location.lat > 29)) {
+                result.location.lat = 28.6139; result.location.lng = 77.2090;
+              }
+            }
+          } catch (geoError) {
+            console.error("Geocoding failed, falling back to AI prediction", geoError);
           }
         }
 
