@@ -4,8 +4,6 @@
 **AI-powered crisis coordination that bridges citizens in distress and volunteer responders — in real time.**
 
 
-> 🏆 *Built for Google Solution Challenge 2026 India 
-
 > 🌐 **Live Demo**: [community-pulse-t6p0.onrender.com](https://community-pulse-t6p0.onrender.com)
 
 ---
@@ -161,7 +159,3 @@ No credentials needed to explore the full system. Run without `serviceAccount.js
 - [ ] Automated post-incident analytics and response time reporting
 
 ---
-
-**Built with urgency. Deployed with care.**
-
-*If this project resonates with you, give it a ⭐ — it helps more builders find it.*
