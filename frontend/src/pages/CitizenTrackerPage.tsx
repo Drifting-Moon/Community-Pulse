@@ -101,7 +101,7 @@ export default function CitizenTrackerPage() {
             type="text"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Enter ticket code (e.g. CP-8012)"
+            placeholder="Enter ticket code (e.g. CP-1001)"
             className="flex-1 h-11 px-3.5 border border-gray-200 rounded-xl text-[15px] text-gray-900 placeholder-gray-400 focus:outline-none focus:border-gray-400 tabular-nums transition-colors"
           />
           <button
@@ -113,6 +113,16 @@ export default function CitizenTrackerPage() {
           </button>
         </form>
       </div>
+
+      {!incident && !loading && (
+        <div className="border border-dashed border-gray-200 dark:border-zinc-800 rounded-xl p-10 text-center space-y-2">
+          <ClockIcon className="w-8 h-8 mx-auto text-gray-400" />
+          <p className="text-[15px] font-medium text-gray-800 dark:text-zinc-200">No active incident loaded</p>
+          <p className="text-[13px] text-gray-500 max-w-md mx-auto">
+            Submit a distress signal from the report page to receive a tracking ticket code, or enter your ticket code above.
+          </p>
+        </div>
+      )}
 
       {incident && (
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-6">

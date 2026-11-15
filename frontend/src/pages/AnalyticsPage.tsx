@@ -81,7 +81,7 @@ export default function AnalyticsPage() {
         <div className="flex flex-col justify-center px-6">
           <span className="text-[13px] text-[#8B8B94]">Cities covered</span>
           <span className="text-[32px] font-semibold text-white leading-none mt-1 tabular-nums">
-            {uniqueCities || 8}
+            {uniqueCities}
           </span>
         </div>
       </div>
@@ -122,7 +122,14 @@ export default function AnalyticsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#26262A]">
-                {predictions.map((p, idx) => {
+                {predictions.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-[#8B8B94]">
+                      No active forecast risks or anomalies detected.
+                    </td>
+                  </tr>
+                ) : (
+                  predictions.map((p, idx) => {
                   const isCritical = p.riskLevel === 'CRITICAL';
                   const isHigh = p.riskLevel === 'HIGH';
 
@@ -167,7 +174,7 @@ export default function AnalyticsPage() {
                       </td>
                     </tr>
                   );
-                })}
+                }))}
               </tbody>
             </table>
           </div>

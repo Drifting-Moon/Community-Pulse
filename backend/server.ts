@@ -676,34 +676,9 @@ app.post('/dispatch/resolve', upload.single('proofPhoto'), async (req, res) => {
   }
 });
 
-const cachedPredictions = [
-  {
-    city: 'Mumbai',
-    predictedCrisisType: 'flood',
-    riskLevel: 'HIGH',
-    confidenceScore: 88,
-    reasoning: 'Early monsoon surge detected in satellite imagery.',
-    recommendedPreventiveAction: 'Stage rescue boats in low-lying Kurla.'
-  },
-  {
-    city: 'Delhi',
-    predictedCrisisType: 'fire',
-    riskLevel: 'CRITICAL',
-    confidenceScore: 92,
-    reasoning: 'Heatwave escalation paired with power grid load.',
-    recommendedPreventiveAction: 'Mobilize fire tankers to industrial clusters.'
-  },
-  {
-    city: 'Bengaluru',
-    predictedCrisisType: 'medical',
-    riskLevel: 'MEDIUM',
-    confidenceScore: 64,
-    reasoning: 'Localized water reports indicate gastroenteritis spike.',
-    recommendedPreventiveAction: 'Distribute hygiene kits to local clinics.'
-  }
-];
+const cachedPredictions: any[] = [];
 
-console.log('⚡ Predictive Intelligence loaded (static mode — saving API quota).');
+console.log('⚡ Predictive Intelligence service initialized.');
 
 app.get('/api/predictions', (req, res) => {
   res.json({

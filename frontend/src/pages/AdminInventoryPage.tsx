@@ -1,72 +1,40 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   CheckCircleIcon,
-  ExclamationTriangleIcon
+  ExclamationTriangleIcon,
+  PlusIcon,
+  XMarkIcon
 } from '@heroicons/react/24/outline';
 import type { ReliefSupply } from '../types';
 
+const STORAGE_KEY = 'naturalpulse_admin_supplies';
+
 export default function AdminInventoryPage() {
-  const [supplies, setSupplies] = useState<ReliefSupply[]>([
-    {
-      id: 'sup-1',
-      name: 'Packaged Drinking Water (20L Cans)',
-      category: 'water',
-      quantity: 1450,
-      unit: 'Cans',
-      depotName: 'Bandra West Central Relief Warehouse',
-      depotCoords: { lat: 19.0596, lng: 72.8295 }
-    },
-    {
-      id: 'sup-2',
-      name: 'Ready-to-Eat Emergency Food Rations',
-      category: 'food',
-      quantity: 2800,
-      unit: 'Family Packs',
-      depotName: 'Dadar Municipal Supply Depot',
-      depotCoords: { lat: 19.0178, lng: 72.8478 }
-    },
-    {
-      id: 'sup-3',
-      name: 'Trauma & Emergency First Aid Kits',
-      category: 'medical',
-      quantity: 320,
-      unit: 'Kits',
-      depotName: 'KEM Hospital Disaster Stockroom',
-      depotCoords: { lat: 19.002, lng: 72.842 }
-    },
-    {
-      id: 'sup-4',
-      name: 'Motorized Inflatable Rescue Boats',
-      category: 'rescue',
-      quantity: 18,
-      unit: 'Boats',
-      depotName: 'Colaba Coastal Rescue Station',
-      depotCoords: { lat: 18.9068, lng: 72.8148 }
-    },
-    {
-      id: 'sup-5',
-      name: 'Waterproof Temporary Shelter Tents',
-      category: 'shelter',
-      quantity: 450,
-      unit: 'Tents',
-      depotName: 'Andheri Civil Defense Reserve',
-      depotCoords: { lat: 19.1136, lng: 72.8697 }
-    },
-    {
-      id: 'sup-6',
-      name: 'Portable Water Purification Units',
-      category: 'water',
-      quantity: 85,
-      unit: 'Units',
-      depotName: 'Kurla Emergency Mobilization Hub',
-      depotCoords: { lat: 19.0726, lng: 72.8845 }
+  const [supplies, setSupplies] = useState<ReliefSupply[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
     }
-  ]);
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(supplies));
+    } catch {}
+  }, [supplies]);
 
   const [selectedDepot, setSelectedDepot] = useState<string>('ALL');
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newItemName, setNewItemName] = useState('');
+  const [newItemCategory, setNewItemCategory] = useState<'water' | 'food' | 'medical' | 'rescue' | 'shelter'>('water');
+  const [newItemQuantity, setNewItemQuantity] = useState(100);
+  const [newItemUnit, setNewItemUnit] = useState('Units');
+  const [newItemDepot, setNewItemDepot] = useState('');
 
   const depots = useMemo(() => {
-    return Array.from(new Set(supplies.map((s) => s.depotName)));
+    return Array.from(new Set(supplies.map((s) => s.depotName))).filter(Boolean);
   }, [supplies]);
 
   const filteredSupplies = useMemo(() => {
@@ -80,6 +48,27 @@ export default function AdminInventoryPage() {
     );
   };
 
+  const handleAddSupply = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newItemName.trim() || !newItemDepot.trim()) {
+      alert('Please enter item name and depot location.');
+      return;
+    }
+    const newSupply: ReliefSupply = {
+      id: 'sup-' + Date.now(),
+      name: newItemName.trim(),
+      category: newItemCategory,
+      quantity: Math.max(0, Number(newItemQuantity) || 0),
+      unit: newItemUnit.trim() || 'Units',
+      depotName: newItemDepot.trim(),
+      depotCoords: { lat: 19.076, lng: 72.877 }
+    };
+    setSupplies((prev) => [newSupply, ...prev]);
+    setNewItemName('');
+    setNewItemDepot('');
+    setShowAddModal(false);
+  };
+
   // 4 summary cells: Clean water, Ready rations, Medical kits, Rescue boats
   const waterTotal = supplies.filter((s) => s.category === 'water').reduce((acc, s) => acc + s.quantity, 0);
   const foodTotal = supplies.filter((s) => s.category === 'food').reduce((acc, s) => acc + s.quantity, 0);
@@ -88,20 +77,31 @@ export default function AdminInventoryPage() {
 
   return (
     <div className="w-full max-w-[1600px] mx-auto px-6 xl:px-8 py-6 space-y-4 font-sans text-[#F2F2F3]">
-      {/* Toolbar row: depot filter select (left) | right: 13px secondary note */}
-      <div className="flex items-center justify-between">
-        <select
-          value={selectedDepot}
-          onChange={(e) => setSelectedDepot(e.target.value)}
-          className="h-10 bg-[#141416] border border-[#26262A] rounded-[8px] px-3 text-[13px] text-white focus:outline-none"
-        >
-          <option value="ALL">All relief depots</option>
-          {depots.map((d) => (
-            <option key={d} value={d}>
-              {d}
-            </option>
-          ))}
-        </select>
+      {/* Toolbar row: depot filter select + add button (left) | right: 13px secondary note */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <select
+            value={selectedDepot}
+            onChange={(e) => setSelectedDepot(e.target.value)}
+            className="h-10 bg-[#141416] border border-[#26262A] rounded-[8px] px-3 text-[13px] text-white focus:outline-none"
+          >
+            <option value="ALL">All relief depots ({depots.length})</option>
+            {depots.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+
+          <button
+            type="button"
+            onClick={() => setShowAddModal(true)}
+            className="h-10 px-3.5 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-white rounded-[8px] text-[13px] font-medium transition-colors flex items-center gap-1.5"
+          >
+            <PlusIcon className="w-4 h-4 text-white" />
+            <span>Add supply</span>
+          </button>
+        </div>
 
         <span className="text-[13px] text-[#8B8B94]">
           Stock is allocated automatically on dispatch
@@ -194,7 +194,14 @@ export default function AdminInventoryPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-[#26262A]">
-              {filteredSupplies.map((item) => {
+              {filteredSupplies.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="p-8 text-center text-[#8B8B94]">
+                    No inventory recorded yet. Click "+ Add supply" to register emergency stock.
+                  </td>
+                </tr>
+              ) : (
+                filteredSupplies.map((item) => {
                 const isOut = item.quantity === 0;
                 const isLow = item.quantity > 0 && item.quantity <= 100;
 
@@ -258,11 +265,110 @@ export default function AdminInventoryPage() {
                     </td>
                   </tr>
                 );
-              })}
+              }))}
             </tbody>
           </table>
         </div>
       </div>
+
+      {/* Add Supply Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-[2000] bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-[#141416] border border-[#26262A] rounded-[10px] max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-[#26262A] pb-3">
+              <h3 className="text-[15px] font-semibold text-white">Register Relief Supply</h3>
+              <button
+                type="button"
+                onClick={() => setShowAddModal(false)}
+                className="text-[#8B8B94] hover:text-white p-1"
+              >
+                <XMarkIcon className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddSupply} className="space-y-4 text-[13px]">
+              <div>
+                <label className="block text-[#8B8B94] font-medium mb-1">Item Name</label>
+                <input
+                  type="text"
+                  required
+                  value={newItemName}
+                  onChange={(e) => setNewItemName(e.target.value)}
+                  placeholder="e.g. Bottled Water, First Aid Kits"
+                  className="w-full h-10 bg-[#0E0E10] border border-[#26262A] rounded-[8px] px-3 text-white placeholder-[#8B8B94] focus:outline-none focus:border-zinc-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[#8B8B94] font-medium mb-1">Category</label>
+                  <select
+                    value={newItemCategory}
+                    onChange={(e) => setNewItemCategory(e.target.value as any)}
+                    className="w-full h-10 bg-[#0E0E10] border border-[#26262A] rounded-[8px] px-3 text-white focus:outline-none focus:border-zinc-500"
+                  >
+                    <option value="water">Water</option>
+                    <option value="food">Food</option>
+                    <option value="medical">Medical</option>
+                    <option value="rescue">Rescue</option>
+                    <option value="shelter">Shelter</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[#8B8B94] font-medium mb-1">Unit</label>
+                  <input
+                    type="text"
+                    value={newItemUnit}
+                    onChange={(e) => setNewItemUnit(e.target.value)}
+                    placeholder="Units / Cans / Kits"
+                    className="w-full h-10 bg-[#0E0E10] border border-[#26262A] rounded-[8px] px-3 text-white placeholder-[#8B8B94] focus:outline-none focus:border-zinc-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[#8B8B94] font-medium mb-1">Quantity</label>
+                <input
+                  type="number"
+                  min="0"
+                  required
+                  value={newItemQuantity}
+                  onChange={(e) => setNewItemQuantity(Number(e.target.value))}
+                  className="w-full h-10 bg-[#0E0E10] border border-[#26262A] rounded-[8px] px-3 text-white placeholder-[#8B8B94] focus:outline-none focus:border-zinc-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[#8B8B94] font-medium mb-1">Depot / Warehouse Name</label>
+                <input
+                  type="text"
+                  required
+                  value={newItemDepot}
+                  onChange={(e) => setNewItemDepot(e.target.value)}
+                  placeholder="e.g. Central City Relief Depot"
+                  className="w-full h-10 bg-[#0E0E10] border border-[#26262A] rounded-[8px] px-3 text-white placeholder-[#8B8B94] focus:outline-none focus:border-zinc-500"
+                />
+              </div>
+
+              <div className="pt-2 flex justify-end gap-2 border-t border-[#26262A]">
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="h-9 px-4 border border-[#26262A] text-[#8B8B94] hover:text-white rounded-[8px]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="h-9 px-4 bg-white hover:bg-zinc-200 text-black font-semibold rounded-[8px] transition-colors"
+                >
+                  Save Item
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
