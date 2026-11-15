@@ -1,5 +1,6 @@
 import React from 'react';
 import { NavLink, Outlet, Link } from 'react-router-dom';
+import ThemeToggle from '../components/ThemeToggle';
 
 export default function CitizenLayout() {
   return (
@@ -11,32 +12,36 @@ export default function CitizenLayout() {
             CommunityPulse
           </Link>
 
-          <nav className="flex items-center gap-6 text-[13px]">
-            <NavLink
-              to="/citizen/report"
-              className={({ isActive }) =>
-                isActive ? 'text-gray-900 font-medium' : 'text-gray-500 hover:text-gray-900 transition-colors'
-              }
-            >
-              Report
-            </NavLink>
-            <NavLink
-              to="/citizen/track"
-              className={({ isActive }) =>
-                isActive ? 'text-gray-900 font-medium' : 'text-gray-500 hover:text-gray-900 transition-colors'
-              }
-            >
-              Track
-            </NavLink>
-            <NavLink
-              to="/citizen/safety"
-              className={({ isActive }) =>
-                isActive ? 'text-gray-900 font-medium' : 'text-gray-500 hover:text-gray-900 transition-colors'
-              }
-            >
-              Safety
-            </NavLink>
-          </nav>
+          <div className="flex items-center gap-6">
+            <nav className="flex items-center gap-6 text-[13px]">
+              <NavLink
+                to="/citizen/report"
+                className={({ isActive }) =>
+                  isActive ? 'text-gray-900 font-medium' : 'text-gray-500 hover:text-gray-900 transition-colors'
+                }
+              >
+                Report
+              </NavLink>
+              <NavLink
+                to="/citizen/track"
+                className={({ isActive }) =>
+                  isActive ? 'text-gray-900 font-medium' : 'text-gray-500 hover:text-gray-900 transition-colors'
+                }
+              >
+                Track
+              </NavLink>
+              <NavLink
+                to="/citizen/safety"
+                className={({ isActive }) =>
+                  isActive ? 'text-gray-900 font-medium' : 'text-gray-500 hover:text-gray-900 transition-colors'
+                }
+              >
+                Safety
+              </NavLink>
+            </nav>
+
+            <ThemeToggle />
+          </div>
         </div>
       </header>
 

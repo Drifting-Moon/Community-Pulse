@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
+import ThemeToggle from '../components/ThemeToggle';
 
 export default function PortalGateway() {
   const [showStaffMenu, setShowStaffMenu] = useState(false);
@@ -35,8 +36,11 @@ export default function PortalGateway() {
             CommunityPulse
           </Link>
 
-          {/* Quiet Staff Sign In */}
-          <div className="relative" ref={staffMenuRef}>
+          <div className="flex items-center gap-4">
+            <ThemeToggle />
+
+            {/* Quiet Staff Sign In */}
+            <div className="relative" ref={staffMenuRef}>
             <button
               type="button"
               onClick={() => setShowStaffMenu((prev) => !prev)}
@@ -66,7 +70,8 @@ export default function PortalGateway() {
             )}
           </div>
         </div>
-      </header>
+      </div>
+    </header>
 
       {/* Main Hero Action - Centered vertically */}
       <main className="flex-1 flex flex-col items-center justify-center min-h-[calc(100dvh-64px)] px-4 sm:px-6 lg:px-8 text-center mx-auto w-full max-w-[1200px]">

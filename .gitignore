@@ -38,3 +38,9 @@ __pycache__/
 backend/*.py
 frontend/*.py
 frontend/scratch/
+
+# Reports & Academic Assets
+PBL*
+*.pdf
+*.docx
+muj_logo.jpeg

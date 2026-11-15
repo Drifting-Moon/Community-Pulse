@@ -83,3 +83,97 @@ body {
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: #3F3F46;
 }
+
+/* ========================================================
+   UNIVERSAL THEME OVERRIDES (BLACK & WHITE MODES)
+   ======================================================== */
+
+/* LIGHT / WHITE MODE (DEFAULT) */
+html[data-theme="light"],
+html:not([data-theme="dark"]) {
+  /* Admin elements in White Theme */
+  .bg-\[\#0E0E10\] { background-color: #FFFFFF !important; }
+  .bg-\[\#141416\] { background-color: #FFFFFF !important; }
+  .bg-\[\#1A1A1D\] { background-color: #F4F4F5 !important; }
+  .bg-\[\#26262A\] { background-color: #E4E4E7 !important; }
+  .bg-\[\#1C1608\] { background-color: #FEFCE8 !important; }
+  .border-\[\#3A2E0E\] { border-color: #FEF08A !important; }
+  .hover\:bg-\[\#1A1A1D\]:hover { background-color: #F4F4F5 !important; }
+  .hover\:bg-\[\#141416\]:hover { background-color: #F4F4F5 !important; }
+  .hover\:bg-\[\#26262A\]:hover { background-color: #E4E4E7 !important; }
+  .border-\[\#26262A\] { border-color: #E4E4E7 !important; }
+  .divide-\[\#26262A\] > * + * { border-color: #E4E4E7 !important; }
+  .text-\[\#F2F2F3\] { color: #18181B !important; }
+  .text-\[\#8B8B94\] { color: #71717A !important; }
+  
+  /* Text in Admin Headers and Panels in White mode */
+  aside .text-white,
+  header .text-white,
+  h1.text-white, h2.text-white, h3.text-white,
+  p.text-white, span.text-white {
+    color: #18181B !important;
+  }
+
+  /* Admin Nav Active Indicator */
+  aside nav a.bg-\[\#1A1A1D\] {
+    background-color: #F4F4F5 !important;
+    color: #18181B !important;
+    font-weight: 600;
+  }
+
+  /* Preserve white text for Colored / Red / Dark Action Buttons */
+  button.bg-\[\#E5383B\], button.bg-\[\#E5383B\] *,
+  .bg-\[\#E5383B\], .bg-\[\#E5383B\] *,
+  button.bg-black, button.bg-black *,
+  button.bg-gray-900, button.bg-gray-900 *,
+  .bg-blue-600, .bg-blue-600 *,
+  .bg-emerald-600, .bg-emerald-600 *,
+  .bg-sky-600, .bg-sky-600 * {
+    color: #FFFFFF !important;
+  }
+
+  /* Leaflet in Light Mode */
+  .leaflet-container {
+    background-color: #F4F4F5 !important;
+  }
+}
+
+/* DARK / BLACK MODE */
+html[data-theme="dark"],
+.dark {
+  /* Common white surfaces become dark */
+  body, .bg-white { background-color: #0E0E10 !important; }
+  .bg-gray-50 { background-color: #141416 !important; }
+  .bg-gray-100 { background-color: #1A1A1D !important; }
+  .hover\:bg-gray-50:hover { background-color: #1A1A1D !important; }
+  .hover\:bg-gray-100:hover { background-color: #26262A !important; }
+  .border-gray-100 { border-color: #26262A !important; }
+  .border-gray-200 { border-color: #26262A !important; }
+  .border-gray-300 { border-color: #3F3F46 !important; }
+  .divide-gray-100 > * + * { border-color: #26262A !important; }
+  .divide-gray-200 > * + * { border-color: #26262A !important; }
+  .text-gray-900 { color: #F2F2F3 !important; }
+  .text-gray-800 { color: #E4E4E7 !important; }
+  .text-gray-700 { color: #D4D4D8 !important; }
+  .text-gray-600 { color: #A1A1AA !important; }
+  .text-gray-500 { color: #8B8B94 !important; }
+  .text-gray-400 { color: #71717A !important; }
+
+  /* Inputs in dark mode */
+  input, textarea, select {
+    background-color: #141416 !important;
+    color: #F2F2F3 !important;
+    border-color: #26262A !important;
+  }
+
+  /* Modals in dark mode */
+  .bg-white.rounded-2xl, .bg-white.rounded-xl {
+    background-color: #141416 !important;
+    border-color: #26262A !important;
+  }
+
+  /* Leaflet in Dark Mode */
+  .leaflet-container {
+    background-color: #141416 !important;
+  }
+}

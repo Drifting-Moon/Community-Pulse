@@ -26,6 +26,8 @@ import {
   ArrowPathIcon,
   CameraIcon
 } from '@heroicons/react/24/outline';
+import ThemeToggle from './components/ThemeToggle';
+import { useTheme } from './theme';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 
@@ -133,9 +135,15 @@ export default function App() {
   const [predictionBannerVisible, setPredictionBannerVisible] = useState(true);
 
   // UI state
+  const { theme } = useTheme();
   const [sortBy, setSortBy] = useState<'criticality' | 'newest'>('criticality');
   const [showResolvedInList, setShowResolvedInList] = useState(false);
-  const [mapLayer, setMapLayer] = useState<'dark' | 'light'>('dark');
+  const [mapLayer, setMapLayer] = useState<'dark' | 'light'>(theme === 'dark' ? 'dark' : 'light');
+
+  useEffect(() => {
+    setMapLayer(theme === 'dark' ? 'dark' : 'light');
+  }, [theme]);
+
   const [heatmapEnabled, setHeatmapEnabled] = useState(false);
   const [showAvatarMenu, setShowAvatarMenu] = useState(false);
   const [showNewReportModal, setShowNewReportModal] = useState(false);
@@ -414,8 +422,10 @@ export default function App() {
               {pageTitle}
             </h1>
 
-            {/* Right Controls: New Report button + Avatar menu */}
+            {/* Right Controls: Theme Toggle + New Report button + Avatar menu */}
             <div className="flex items-center gap-3">
+              <ThemeToggle />
+
               <button
                 type="button"
                 onClick={() => setShowNewReportModal(true)}

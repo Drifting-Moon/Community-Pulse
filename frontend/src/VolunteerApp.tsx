@@ -16,6 +16,8 @@ import {
 } from '@heroicons/react/24/outline';
 import { BellIcon } from '@heroicons/react/24/solid';
 import { formatDistanceToNow } from 'date-fns';
+import ThemeToggle from './components/ThemeToggle';
+import { useTheme } from './theme';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 const STORAGE_KEY = 'communitypulse_volunteer_profile';
@@ -95,6 +97,7 @@ const MapRecenter = ({ center, zoom }: { center: [number, number]; zoom: number 
 };
 
 export default function VolunteerApp() {
+  const { theme } = useTheme();
   const [volunteer, setVolunteer] = useState<VolunteerProfile | null>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -478,6 +481,8 @@ export default function VolunteerApp() {
           </div>
 
           <div className="flex items-center space-x-2">
+            <ThemeToggle />
+
             <button
               onClick={() => setSoundEnabled((prev) => !prev)}
               className={`p-1.5 rounded-lg border transition-colors ${
@@ -771,9 +776,10 @@ export default function VolunteerApp() {
               zoomControl={false}
             >
               <TileLayer
-                key="volunteer-light-tiles"
+                key={`volunteer-tiles-${theme}`}
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                className={theme === 'dark' ? 'dark-tiles' : ''}
                 maxZoom={19}
               />
               <MapRecenter center={mapCenterCoords} zoom={12} />
