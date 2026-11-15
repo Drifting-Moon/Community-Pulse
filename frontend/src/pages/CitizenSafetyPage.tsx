@@ -11,10 +11,8 @@ export default function CitizenSafetyPage() {
   ];
 
   const safeZones = [
-    { name: 'Bandra Relief Camp & Community Center', type: 'Designated Shelter', capacity: '450 beds', address: 'Bandra West' },
-    { name: 'Dadar Municipal High School Safe Zone', type: 'Flood Refuge Area', capacity: '300 beds', address: 'Dadar Central' },
-    { name: 'KEM Hospital Emergency Trauma Ward', type: 'Medical First-Line', capacity: '24/7 Triage', address: 'Parel' },
-    { name: 'Andheri Sports Complex Relief Hub', type: 'Ration Distribution', capacity: '1,200 persons', address: 'Andheri West' },
+    { name: 'Bagru Municipal Relief & Safe Camp', type: 'Designated Shelter', capacity: '500 beds', address: 'Bagru' },
+    { name: 'SMS Medical Disaster Center', type: 'Medical First-Line', capacity: '24/7 Triage', address: 'Jaipur' },
   ];
 
   return (

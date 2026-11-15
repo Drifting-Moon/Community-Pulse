@@ -87,7 +87,11 @@ export class AIService {
           const locName = result.location.name.toLowerCase();
 
           // Emergency Correction for common Indian cities if AI gets lat/lng wrong
-          if (locName.includes('noida') && (result.location.lat < 28 || result.location.lat > 29)) {
+          if (locName.includes('bagru')) {
+            result.location.lat = 26.8143; result.location.lng = 75.5447;
+          } else if (locName.includes('jaipur') && (result.location.lat < 26.5 || result.location.lat > 27.5)) {
+            result.location.lat = 26.9124; result.location.lng = 75.7873;
+          } else if (locName.includes('noida') && (result.location.lat < 28 || result.location.lat > 29)) {
             result.location.lat = 28.6282; result.location.lng = 77.3649; // Correct Noida Sec 62
           } else if (locName.includes('mumbai') && (result.location.lat > 20 || result.location.lat < 18)) {
             result.location.lat = 19.0760; result.location.lng = 72.8777;

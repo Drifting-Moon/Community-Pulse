@@ -44,7 +44,7 @@ export default function AdminLayout() {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <Link to="/admin/dashboard" className="font-bold text-lg text-white hover:text-sky-400 transition-colors">
+                <Link to="/" title="Return to Main Portal Gateway" className="font-bold text-lg text-white hover:text-sky-400 transition-colors">
                   CommunityPulse
                 </Link>
                 <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-sky-500/10 text-sky-400 border border-sky-500/20">

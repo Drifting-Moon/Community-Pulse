@@ -44,6 +44,16 @@ function smartLocalExtract(text: string): Partial<any> | null {
   else return null;
 
   const locationMap: Record<string, { lat: number; lng: number }> = {
+    'bagru': { lat: 26.8143, lng: 75.5447 },
+    'jaipur': { lat: 26.9124, lng: 75.7873 },
+    'sanganer': { lat: 26.8288, lng: 75.7885 },
+    'mansarovar': { lat: 26.8643, lng: 75.7667 },
+    'malviya nagar': { lat: 26.8524, lng: 75.8174 },
+    'vaishali nagar': { lat: 26.9066, lng: 75.7423 },
+    'c scheme': { lat: 26.9124, lng: 75.7873 },
+    'amer': { lat: 26.9855, lng: 75.8513 },
+    'jodhpur': { lat: 26.2389, lng: 73.0243 },
+    'udaipur': { lat: 24.5854, lng: 73.7125 },
     'gateway of india': { lat: 18.9220, lng: 72.8347 },
     'dharavi': { lat: 19.0422, lng: 72.8538 },
     'juhu': { lat: 19.0990, lng: 72.8267 },
@@ -67,17 +77,28 @@ function smartLocalExtract(text: string): Partial<any> | null {
     'connaught place': { lat: 28.6315, lng: 77.2167 },
     'cp': { lat: 28.6315, lng: 77.2167 },
     'delhi': { lat: 28.6139, lng: 77.2090 },
-    'india': { lat: 20.5937, lng: 78.9629 },
+    'bengaluru': { lat: 12.9716, lng: 77.5946 },
+    'bangalore': { lat: 12.9716, lng: 77.5946 },
+    'chennai': { lat: 13.0827, lng: 80.2707 },
+    'kolkata': { lat: 22.5726, lng: 88.3639 },
+    'hyderabad': { lat: 17.3850, lng: 78.4867 },
+    'pune': { lat: 18.5204, lng: 73.8567 },
+    'ahmedabad': { lat: 23.0225, lng: 72.5714 },
+    'lucknow': { lat: 26.8467, lng: 80.9462 },
   };
 
-  let locationName = 'Reported Area';
-  let coords = { lat: 20.5937, lng: 78.9629 };
+  let locationName = '';
+  let coords: { lat: number; lng: number } | undefined = undefined;
   for (const [key, val] of Object.entries(locationMap)) {
     if (t.includes(key)) {
       locationName = key.replace(/\b\w/g, c => c.toUpperCase());
       coords = val;
       break;
     }
+  }
+
+  if (!coords) {
+    return null; // Do not pretend to know coordinates if not in gazetteer
   }
 
   const scaleMatch = t.match(/(\d+)\s*(people|person|family|families|victims|residents)/);
@@ -367,7 +388,34 @@ app.post('/ingest', upload.single('image'), async (req, res) => {
       return res.status(422).json({ error: 'Signal unclear — could not extract crisis data. Please add more detail: location, type, or scale.' });
     }
 
-    const locationStr = `${extractedData.crisisType} ${extractedData.location?.name || 'Unknown'} ${extractedData.urgencyReasoning}`;
+    // Direct GPS Passthrough & Validation
+    const clientLat = req.body.lat !== undefined && req.body.lat !== '' ? parseFloat(req.body.lat) : undefined;
+    const clientLng = req.body.lng !== undefined && req.body.lng !== '' ? parseFloat(req.body.lng) : undefined;
+    const hasClientGps = typeof clientLat === 'number' && !isNaN(clientLat) && typeof clientLng === 'number' && !isNaN(clientLng);
+
+    let finalLat: number | undefined;
+    let finalLng: number | undefined;
+    let finalLocationName: string = req.body.locationName || extractedData.location?.name || 'Reported Location';
+
+    if (hasClientGps) {
+      finalLat = clientLat;
+      finalLng = clientLng;
+      console.log(`📍 Using exact client GPS coordinates: [${finalLat}, ${finalLng}] for ${finalLocationName}`);
+    } else if (typeof extractedData.location?.lat === 'number' && typeof extractedData.location?.lng === 'number' && !isNaN(extractedData.location.lat) && !isNaN(extractedData.location.lng)) {
+      finalLat = extractedData.location.lat;
+      finalLng = extractedData.location.lng;
+      console.log(`🤖 Using AI/geocoded coordinates: [${finalLat}, ${finalLng}] for ${finalLocationName}`);
+    }
+
+    // Zero-fallback policy: If coordinates could not be determined, return an explicit error instead of a fake location
+    if (typeof finalLat !== 'number' || typeof finalLng !== 'number' || isNaN(finalLat) || isNaN(finalLng)) {
+      console.warn(`⚠️ Rejected: Could not determine valid GPS coordinates for location "${finalLocationName}".`);
+      return res.status(422).json({
+        error: `Could not determine exact coordinates for "${finalLocationName}". Please enable device GPS or specify a recognized town/city name.`
+      });
+    }
+
+    const locationStr = `${extractedData.crisisType} ${finalLocationName} ${extractedData.urgencyReasoning}`;
 
     let embedding: number[];
     try {
@@ -383,9 +431,9 @@ app.post('/ingest', upload.single('image'), async (req, res) => {
       id: crypto.randomUUID(),
       ticketCode,
       location: {
-        name: extractedData.location?.name || 'Unknown Location',
-        lat: extractedData.location?.lat || 19.0760,
-        lng: extractedData.location?.lng || 72.8777
+        name: finalLocationName,
+        lat: finalLat,
+        lng: finalLng
       },
       crisisType: (extractedData.crisisType || 'medical') as any,
       urgencyReasoning: extractedData.urgencyReasoning || 'Immediate assistance required.',

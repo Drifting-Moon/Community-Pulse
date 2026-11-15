@@ -129,7 +129,8 @@ export default function ReportPage() {
     }
 
     setIsIngesting(true);
-    const locText = manualAddress.trim() || detectedLocation?.name || 'GPS Auto-Detected';
+    const hasManualAddress = Boolean(manualAddress.trim());
+    const locText = hasManualAddress ? manualAddress.trim() : (detectedLocation?.name || 'GPS Auto-Detected');
     const fullText = `[CRISIS: ${selectedType || 'Emergency'}] ${description} (Location: ${locText})`;
 
     try {
@@ -141,6 +142,14 @@ export default function ReportPage() {
       } else {
         const formData = new FormData();
         formData.append('text', fullText);
+        formData.append('locationName', locText);
+
+        // Direct GPS Passthrough: send exact lat/lng when GPS is detected and no override address typed
+        if (!hasManualAddress && detectedLocation && typeof detectedLocation.lat === 'number' && typeof detectedLocation.lng === 'number') {
+          formData.append('lat', detectedLocation.lat.toString());
+          formData.append('lng', detectedLocation.lng.toString());
+        }
+
         if (selectedImage) formData.append('image', selectedImage);
 
         const res = await axios.post(`${API_BASE}/ingest`, formData);
@@ -148,11 +157,14 @@ export default function ReportPage() {
         setReportId(code);
         setIsSuccess(true);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Submission error:', err);
-      const fallbackCode = `CP-${Math.floor(1000 + Math.random() * 9000)}`;
-      setReportId(fallbackCode);
-      setIsSuccess(true);
+      const serverErrMsg = err.response?.data?.error;
+      if (serverErrMsg) {
+        alert(`Emergency Report Error: ${serverErrMsg}`);
+      } else {
+        alert('Could not submit emergency report. Please ensure network is connected or provide clear location details.');
+      }
     } finally {
       setIsIngesting(false);
     }

@@ -55,7 +55,12 @@ export default function PortalGateway() {
                 <Link
                   to="/admin"
                   className="block px-3 py-2 rounded-lg text-gray-700 hover:bg-gray-100 hover:text-gray-900 transition-colors"
-                  onClick={() => setShowStaffMenu(false)}
+                  onClick={() => {
+                    try {
+                      sessionStorage.removeItem('command_center_sector_chosen');
+                    } catch {}
+                    setShowStaffMenu(false);
+                  }}
                 >
                   Command Center
                 </Link>

@@ -67,13 +67,13 @@ export default function VolunteersPage() {
   const [showRegisterModal, setShowRegisterModal] = useState(false);
   const [regStep, setRegStep] = useState<1 | 2 | 3>(1);
   const [regName, setRegName] = useState('');
-  const [regNgo, setRegNgo] = useState('Red Cross Society India');
+  const [regNgo, setRegNgo] = useState('Independent Civic Responder');
   const [regPhone, setRegPhone] = useState('');
   const [regLanguage, setRegLanguage] = useState('English');
   const [regSkills, setRegSkills] = useState<string[]>(['medical']);
-  const [regLocationName, setRegLocationName] = useState('Mumbai - Dharavi Hub');
-  const [regLat, setRegLat] = useState(19.0422);
-  const [regLng, setRegLng] = useState(72.8538);
+  const [regLocationName, setRegLocationName] = useState('');
+  const [regLat, setRegLat] = useState(28.6139);
+  const [regLng, setRegLng] = useState(77.2090);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Kebab menu state
@@ -130,6 +130,16 @@ export default function VolunteersPage() {
       fetchVolunteers();
     } catch (e) {
       console.error('Error removing volunteer:', e);
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (!window.confirm('Are you sure you want to purge all volunteers from the network database?')) return;
+    try {
+      await axios.post(`${API_BASE}/volunteers/clear`);
+      fetchVolunteers();
+    } catch (e) {
+      console.error('Error clearing volunteers:', e);
     }
   };
 
@@ -254,17 +264,30 @@ export default function VolunteersPage() {
           <option value="OFF_DUTY">Off duty</option>
         </select>
 
-        {/* Register volunteer primary button */}
-        <button
-          type="button"
-          onClick={() => {
-            setRegStep(1);
-            setShowRegisterModal(true);
-          }}
-          className="h-10 px-4 bg-white hover:bg-zinc-200 text-black font-semibold rounded-[8px] text-[13px] transition-colors shrink-0"
-        >
-          Register volunteer
-        </button>
+        {/* Action buttons */}
+        <div className="flex items-center gap-2 shrink-0">
+          {volunteers.length > 0 && (
+            <button
+              type="button"
+              onClick={handleClearAll}
+              className="h-10 px-3 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-[#8B8B94] hover:text-white rounded-[8px] text-[13px] transition-colors"
+            >
+              Clear all
+            </button>
+          )}
+
+          {/* Register volunteer primary button */}
+          <button
+            type="button"
+            onClick={() => {
+              setRegStep(1);
+              setShowRegisterModal(true);
+            }}
+            className="h-10 px-4 bg-white hover:bg-zinc-200 text-black font-semibold rounded-[8px] text-[13px] transition-colors"
+          >
+            Register volunteer
+          </button>
+        </div>
       </div>
 
       {/* Subline under toolbar */}
@@ -375,12 +398,12 @@ export default function VolunteersPage() {
 
                       {/* Reliability */}
                       <td className="px-4 text-white font-medium tabular-nums">
-                        {((vol.reliabilityRate || 0.98) * 100).toFixed(0)}%
+                        {vol.reliabilityRate !== undefined ? `${(vol.reliabilityRate * 100).toFixed(0)}%` : '100%'}
                       </td>
 
                       {/* Load */}
                       <td className="px-4 text-[#8B8B94] tabular-nums">
-                        {vol.hoursLast30Days || 14}/20h
+                        {vol.hoursLast30Days || 0}/20h
                       </td>
 
                       {/* Actions: [Dispatch] secondary button + kebab */}

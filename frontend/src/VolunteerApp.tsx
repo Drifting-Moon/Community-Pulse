@@ -246,10 +246,10 @@ export default function VolunteerApp() {
         skills: regSkills.length > 0 ? regSkills : ['medical'],
         locationCoords: { lat: regLat, lng: regLng },
         locationName: regLocationName || 'Custom Station',
-        reliabilityRate: 0.98,
+        reliabilityRate: 1.0,
         status: 'AVAILABLE',
         hoursLast30Days: 0,
-        pastContributions: ['Registered in CommunityPulse Network'],
+        pastContributions: [],
         registeredAt: Date.now()
       };
       saveVolunteer(fallbackVol);
@@ -445,7 +445,7 @@ export default function VolunteerApp() {
             : 9999;
         return { ...n, distanceKm: dist };
       })
-      .filter((n) => n.distanceKm <= maxRadiusKm || (n.criticalityScore || 0) >= 80)
+      .filter((n) => n.distanceKm <= maxRadiusKm)
       .sort((a, b) => a.distanceKm - b.distanceKm);
   }, [needs, volunteer, maxRadiusKm]);
 
@@ -472,12 +472,16 @@ export default function VolunteerApp() {
             >
               <ArrowLeftIcon className="w-4 h-4" />
             </a>
-            <div className="flex items-center space-x-2">
+            <a
+              href="/"
+              className="flex items-center space-x-2 group hover:opacity-85 transition-opacity"
+              title="Return to Main Portal Gateway"
+            >
               <span className="w-2 h-2 rounded-full bg-[#2E9E6B]"></span>
               <h1 className="text-[15px] font-semibold text-gray-900 tracking-tight">
-                Volunteer Field Portal
+                CommunityPulse · Volunteer Field
               </h1>
-            </div>
+            </a>
           </div>
 
           <div className="flex items-center space-x-2">
@@ -590,6 +594,16 @@ export default function VolunteerApp() {
                     className="w-full text-left px-3 py-2 text-gray-700 hover:bg-gray-50 rounded-lg"
                   >
                     Edit profile and skills
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowAccountMenu(false);
+                      localStorage.removeItem(STORAGE_KEY);
+                      setVolunteer(null);
+                    }}
+                    className="w-full text-left px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg border-t border-gray-100 mt-1"
+                  >
+                    Clear profile & sign out
                   </button>
                 </div>
               )}

@@ -8,7 +8,11 @@ export default function CitizenLayout() {
       {/* Single Clean Header - Shared container with body */}
       <header className="border-b border-gray-200 bg-white sticky top-0 z-40 h-16 flex items-center">
         <div className="mx-auto w-full max-w-[1200px] px-4 sm:px-6 lg:px-8 flex items-center justify-between">
-          <Link to="/citizen/report" className="font-semibold text-[15px] tracking-tight text-gray-900">
+          <Link
+            to="/"
+            title="Return to Main Portal Gateway"
+            className="font-semibold text-[15px] tracking-tight text-gray-900 hover:text-red-600 transition-colors"
+          >
             CommunityPulse
           </Link>
 

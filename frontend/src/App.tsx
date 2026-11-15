@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useMemo } from 'react';
 import axios from 'axios';
 import { Routes, Route, useLocation, useNavigate, Link } from 'react-router-dom';
 import type { NeedEntity, VolunteerProfile, Prediction } from './types';
-import { MapContainer, TileLayer, CircleMarker, Tooltip, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, CircleMarker, Circle, Tooltip, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet.heat';
 
@@ -56,8 +56,58 @@ function formatShortTimeAgo(timestamp: number): string {
   return `${diffDays}d ago`;
 }
 
+export interface SectorZone {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  radiusKm: number;
+  isCustom?: boolean;
+}
+
+const DEFAULT_SECTORS: SectorZone[] = [
+  { id: 'sec-bagru', name: 'Bagru Sector', lat: 26.8143, lng: 75.5447, radiusKm: 15 },
+  { id: 'sec-jaipur', name: 'Jaipur Command', lat: 26.9124, lng: 75.7873, radiusKm: 20 },
+  { id: 'sec-delhi', name: 'Delhi NCR Command', lat: 28.6139, lng: 77.2090, radiusKm: 30 },
+  { id: 'sec-mumbai', name: 'Mumbai Metropolitan', lat: 19.0760, lng: 72.8777, radiusKm: 30 },
+  { id: 'sec-bengaluru', name: 'Bengaluru Urban Sector', lat: 12.9716, lng: 77.5946, radiusKm: 25 },
+];
+
+function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+const PLACE_COORDS: Record<string, [number, number]> = {
+  'Jaipur': [26.9124, 75.7873],
+  'Bagru': [26.8143, 75.5447],
+  'Delhi': [28.6139, 77.2090],
+  'Mumbai': [19.0760, 72.8777],
+  'Bengaluru': [12.9716, 77.5946],
+  'Chennai': [13.0827, 80.2707],
+  'Kolkata': [22.5726, 88.3639],
+  'Hyderabad': [17.3850, 78.4867]
+};
+
 // Map Controller: handles invalidateSize, initial fitBounds to active points, and flyTo on selected incident
-const MapController = ({ points, selectedNeed }: { points: [number, number][]; selectedNeed: NeedEntity | null }) => {
+const MapController = ({
+  points,
+  selectedNeed,
+  centerTarget
+}: {
+  points: [number, number][];
+  selectedNeed: NeedEntity | null;
+  centerTarget?: [number, number] | null;
+}) => {
   const map = useMap();
   const hasFittedRef = useRef(false);
 
@@ -70,9 +120,11 @@ const MapController = ({ points, selectedNeed }: { points: [number, number][]; s
     return () => clearTimeout(t);
   }, [map]);
 
-  // Fit bounds on active points once data is loaded
+  // Fit bounds on active points once data is loaded, or fly to selected jurisdiction
   useEffect(() => {
-    if (points.length > 0 && !hasFittedRef.current) {
+    if (centerTarget) {
+      map.flyTo(centerTarget, 12, { animate: true, duration: 0.8 });
+    } else if (points.length > 0 && !hasFittedRef.current) {
       try {
         const bounds = L.latLngBounds(points);
         map.fitBounds(bounds, { padding: [48, 48], maxZoom: 11 });
@@ -81,7 +133,7 @@ const MapController = ({ points, selectedNeed }: { points: [number, number][]; s
         console.warn('Map fitBounds error:', e);
       }
     }
-  }, [points, map]);
+  }, [points, centerTarget, map]);
 
   // Fly to selected incident on selection
   useEffect(() => {
@@ -136,6 +188,132 @@ export default function App() {
 
   // UI state
   const { theme } = useTheme();
+  const SECTORS_STORAGE_KEY = 'naturalpulse_admin_sectors';
+
+  const [sectors, setSectors] = useState<SectorZone[]>(() => {
+    try {
+      const saved = localStorage.getItem(SECTORS_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Auto-purge any duplicate Jaipur sectors so only one single Jaipur is ever kept
+          let seenJaipur = false;
+          const cleaned = parsed.filter((sec: SectorZone) => {
+            const isJaipur =
+              sec.name.toLowerCase().includes('jaipur') ||
+              sec.id.toLowerCase().includes('jaipur');
+            if (isJaipur) {
+              if (seenJaipur) return false;
+              seenJaipur = true;
+              return true;
+            }
+            return true;
+          });
+          return cleaned;
+        }
+      }
+    } catch {}
+    return DEFAULT_SECTORS;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SECTORS_STORAGE_KEY, JSON.stringify(sectors));
+    } catch {}
+  }, [sectors]);
+
+  const [selectedSectorId, setSelectedSectorId] = useState<string>(() => {
+    try {
+      const saved = sessionStorage.getItem('command_center_sector_chosen');
+      if (saved) return saved;
+    } catch {}
+    return 'ALL';
+  });
+  const [showSectorGate, setShowSectorGate] = useState<boolean>(() => {
+    try {
+      return !sessionStorage.getItem('command_center_sector_chosen');
+    } catch {
+      return false;
+    }
+  });
+
+  const handleSelectGateSector = (sectorId: string) => {
+    setSelectedSectorId(sectorId);
+    try {
+      sessionStorage.setItem('command_center_sector_chosen', sectorId);
+    } catch {}
+    setShowSectorGate(false);
+  };
+
+  const [showSectorModal, setShowSectorModal] = useState<boolean>(false);
+  const [newSectorName, setNewSectorName] = useState('');
+  const [newSectorLat, setNewSectorLat] = useState<string>('');
+  const [newSectorLng, setNewSectorLng] = useState<string>('');
+  const [newSectorRadius, setNewSectorRadius] = useState<number>(15);
+  const [isDetectingGps, setIsDetectingGps] = useState(false);
+
+  const activeSector = useMemo(() => {
+    if (selectedSectorId === 'ALL') return null;
+    return sectors.find((s) => s.id === selectedSectorId) || null;
+  }, [sectors, selectedSectorId]);
+
+  const handleDetectGpsForSector = () => {
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser.');
+      return;
+    }
+    setIsDetectingGps(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setNewSectorLat(pos.coords.latitude.toFixed(4));
+        setNewSectorLng(pos.coords.longitude.toFixed(4));
+        setIsDetectingGps(false);
+      },
+      () => {
+        setIsDetectingGps(false);
+        alert('Could not acquire GPS position. Please enter manually.');
+      },
+      { timeout: 8000 }
+    );
+  };
+
+  const handleAddSector = (e: React.FormEvent) => {
+    e.preventDefault();
+    const lat = parseFloat(newSectorLat);
+    const lng = parseFloat(newSectorLng);
+    if (!newSectorName.trim() || isNaN(lat) || isNaN(lng)) {
+      alert('Please provide a valid sector name and numeric coordinates.');
+      return;
+    }
+    const newSector: SectorZone = {
+      id: `sec-${Date.now()}`,
+      name: newSectorName.trim(),
+      lat,
+      lng,
+      radiusKm: Number(newSectorRadius) || 15,
+      isCustom: true
+    };
+    setSectors((prev) => [newSector, ...prev]);
+    setSelectedSectorId(newSector.id);
+    setNewSectorName('');
+    setNewSectorLat('');
+    setNewSectorLng('');
+    setShowSectorModal(false);
+  };
+
+  const handleDeleteSector = (id: string) => {
+    setSectors((prev) => prev.filter((s) => s.id !== id));
+    if (selectedSectorId === id) setSelectedSectorId('ALL');
+  };
+
+  const handleResetSectors = () => {
+    setSectors(DEFAULT_SECTORS);
+    setSelectedSectorId('ALL');
+    try {
+      localStorage.setItem(SECTORS_STORAGE_KEY, JSON.stringify(DEFAULT_SECTORS));
+    } catch {}
+  };
+
   const [sortBy, setSortBy] = useState<'criticality' | 'newest'>('criticality');
   const [showResolvedInList, setShowResolvedInList] = useState(false);
   const [mapLayer, setMapLayer] = useState<'dark' | 'light'>(theme === 'dark' ? 'dark' : 'light');
@@ -301,16 +479,31 @@ export default function App() {
     }
   };
 
-  // Active metrics
-  // "must equal Active crises stat; list shows only unresolved by default"
-  const activeCount = needs.filter((n) => n.status !== 'RESOLVED' && n.status !== 'FALSE_ALARM').length;
-  const enRouteCount = needs.filter((n) => n.status === 'EN_ROUTE' || (n.enRouteVolunteers && n.enRouteVolunteers.length > 0)).length;
+  // Scoped Needs based on Active Sector
+  const scopedNeeds = useMemo(() => {
+    if (!activeSector) return needs;
+    return needs.filter((n) => {
+      // 1. Coordinate distance check if lat and lng exist
+      if (typeof n.location?.lat === 'number' && typeof n.location?.lng === 'number') {
+        const dist = haversineDistance(activeSector.lat, activeSector.lng, n.location.lat, n.location.lng);
+        if (dist <= activeSector.radiusKm) return true;
+      }
+      // 2. Also match by sector name keywords (e.g. "bagru", "jaipur", "mansarovar")
+      const sectorKeywords = activeSector.name.toLowerCase().split(/[\s,()/-]+/);
+      const locName = (n.location?.name || '').toLowerCase();
+      return sectorKeywords.some((kw) => kw.length >= 3 && locName.includes(kw));
+    });
+  }, [needs, activeSector]);
+
+  // Active metrics scoped to jurisdiction
+  const activeCount = scopedNeeds.filter((n) => n.status !== 'RESOLVED' && n.status !== 'FALSE_ALARM').length;
+  const enRouteCount = scopedNeeds.filter((n) => n.status === 'EN_ROUTE' || (n.enRouteVolunteers && n.enRouteVolunteers.length > 0)).length;
   const volunteersReady = volunteers.filter((v) => v.status === 'AVAILABLE').length;
-  const resolvedCount = needs.filter((n) => n.status === 'RESOLVED').length;
+  const resolvedCount = scopedNeeds.filter((n) => n.status === 'RESOLVED').length;
 
   // Filter & sort incidents for dashboard list
   const dashboardIncidents = useMemo(() => {
-    let list = needs.filter((n) => {
+    let list = scopedNeeds.filter((n) => {
       if (showResolvedInList) return true;
       return n.status !== 'RESOLVED' && n.status !== 'FALSE_ALARM';
     });
@@ -321,23 +514,23 @@ export default function App() {
       list.sort((a, b) => b.reportedAt - a.reportedAt);
     }
     return list;
-  }, [needs, sortBy, showResolvedInList]);
+  }, [scopedNeeds, sortBy, showResolvedInList]);
 
   const heatmapData = useMemo(() => {
-    return needs
+    return scopedNeeds
       .filter((n) => n.location?.lat && n.location?.lng)
       .map((n) => ({
         lat: n.location.lat,
         lng: n.location.lng,
         weight: n.criticalityScore || 20
       }));
-  }, [needs]);
+  }, [scopedNeeds]);
 
   const activePoints: [number, number][] = useMemo(() => {
-    return needs
+    return scopedNeeds
       .filter((n) => n.location?.lat && n.location?.lng && n.status !== 'RESOLVED' && n.status !== 'FALSE_ALARM')
       .map((n) => [n.location.lat, n.location.lng]);
-  }, [needs]);
+  }, [scopedNeeds]);
 
   // Current page title derived from route
   const pageTitle = useMemo(() => {
@@ -376,14 +569,18 @@ export default function App() {
         <aside className="border-r border-[#26262A] bg-[#0E0E10] flex flex-col justify-between py-4 px-2 xl:px-3">
           <div className="space-y-6">
             {/* Logo Mark + Title */}
-            <div className="flex items-center gap-3 px-2">
-              <div className="w-8 h-8 rounded-lg bg-[#26262A] text-white flex items-center justify-center font-semibold text-[13px] shrink-0">
+            <Link
+              to="/"
+              title="Return to Main Portal Gateway"
+              className="flex items-center gap-3 px-2 group cursor-pointer hover:opacity-85 transition-opacity"
+            >
+              <div className="w-8 h-8 rounded-lg bg-[#26262A] text-white flex items-center justify-center font-semibold text-[13px] shrink-0 group-hover:bg-[#34343A] transition-colors">
                 CP
               </div>
               <span className="hidden xl:inline text-[15px] font-semibold tracking-tight text-white truncate">
                 CommunityPulse
               </span>
-            </div>
+            </Link>
 
             {/* Nav items: 40px high, 8px radius */}
             <nav className="space-y-1">
@@ -417,10 +614,43 @@ export default function App() {
         <div className="flex flex-col h-dvh overflow-hidden min-w-0">
           {/* Top Bar (56px) */}
           <header className="h-14 border-b border-[#26262A] bg-[#0E0E10] px-6 flex items-center justify-between shrink-0">
-            {/* Page Title */}
-            <h1 className="text-[20px] font-semibold text-white tracking-tight">
-              {pageTitle}
-            </h1>
+            {/* Page Title & Jurisdiction Selector */}
+            <div className="flex items-center gap-3">
+              <h1 className="text-[20px] font-semibold text-white tracking-tight">
+                {pageTitle}
+              </h1>
+
+              {pageTitle === 'Dashboard' && (
+                <div className="flex items-center gap-1.5 pl-3 border-l border-[#26262A]">
+                  <span className="text-[11px] text-[#8B8B94] font-medium hidden sm:inline">Sector:</span>
+                  <select
+                    value={selectedSectorId}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSelectedSectorId(val);
+                      setSelectedNeed(null);
+                    }}
+                    className="h-8 bg-[#141416] border border-[#26262A] rounded-[6px] px-2.5 text-[12px] text-white focus:outline-none"
+                    title="Active Operational Sector"
+                  >
+                    <option value="ALL">All Sectors (National)</option>
+                    {sectors.map((sec) => (
+                      <option key={sec.id} value={sec.id}>{sec.name}</option>
+                    ))}
+                  </select>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowSectorModal(true)}
+                    className="h-8 px-2.5 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-white text-[11px] font-medium rounded-[6px] flex items-center gap-1 transition-colors"
+                    title="Manage Sectors"
+                  >
+                    <PlusIcon className="w-3.5 h-3.5" />
+                    <span>Sector</span>
+                  </button>
+                </div>
+              )}
+            </div>
 
             {/* Right Controls: Theme Toggle + New Report button + Avatar menu */}
             <div className="flex items-center gap-3">
@@ -545,11 +775,30 @@ export default function App() {
                             className={TILE_LAYERS[mapLayer].className}
                             maxZoom={19}
                           />
-                          <MapController points={activePoints} selectedNeed={selectedNeed} />
+                          <MapController
+                            points={activePoints}
+                            selectedNeed={selectedNeed}
+                            centerTarget={activeSector ? [activeSector.lat, activeSector.lng] : null}
+                          />
                           <HeatmapOverlay data={heatmapData} enabled={heatmapEnabled} />
 
+                          {/* Active Sector visual boundary circle */}
+                          {activeSector && (
+                            <Circle
+                              center={[activeSector.lat, activeSector.lng]}
+                              radius={activeSector.radiusKm * 1000}
+                              pathOptions={{
+                                color: '#4C8DFF',
+                                weight: 1.5,
+                                dashArray: '6, 6',
+                                fillColor: '#4C8DFF',
+                                fillOpacity: 0.04
+                              }}
+                            />
+                          )}
+
                           {/* Pins: 14px circles colored by severity (>=85 red, 65-84 amber, <65 gray) */}
-                          {needs.map((n) => {
+                          {scopedNeeds.map((n) => {
                             if (!n.location?.lat || !n.location?.lng) return null;
                             const isSelected = selectedNeed?.id === n.id;
                             const score = n.criticalityScore || 0;
@@ -1053,6 +1302,237 @@ export default function App() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* MANAGE SECTORS MODAL */}
+      {showSectorModal && (
+        <div className="fixed inset-0 z-[2000] bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-[#141416] border border-[#26262A] rounded-[10px] max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-[#26262A] pb-3">
+              <div>
+                <h3 className="text-[16px] font-semibold text-white">Manage Operational Sectors</h3>
+                <p className="text-[12px] text-[#8B8B94] mt-0.5">Define regional jurisdictions and dispatch radiuses.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSectorModal(false)}
+                className="text-[#8B8B94] hover:text-white p-1"
+              >
+                <XMarkIcon className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Form: Add new Sector */}
+            <form onSubmit={handleAddSector} className="space-y-3 p-3.5 bg-[#0E0E10] border border-[#26262A] rounded-[8px] text-[13px]">
+              <span className="font-semibold text-white text-[13px] block">Create New Sector</span>
+              <div>
+                <label className="block text-[#8B8B94] text-[11px] uppercase tracking-wider mb-1">Sector Name</label>
+                <input
+                  type="text"
+                  required
+                  value={newSectorName}
+                  onChange={(e) => setNewSectorName(e.target.value)}
+                  placeholder="e.g. Bagru Industrial Zone, Amer North"
+                  className="w-full h-9 bg-[#141416] border border-[#26262A] rounded-[6px] px-3 text-white placeholder-[#8B8B94] focus:outline-none focus:border-zinc-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[#8B8B94] text-[11px] uppercase tracking-wider mb-1">Latitude</label>
+                  <input
+                    type="number"
+                    step="any"
+                    required
+                    value={newSectorLat}
+                    onChange={(e) => setNewSectorLat(e.target.value)}
+                    placeholder="e.g. 26.8143"
+                    className="w-full h-9 bg-[#141416] border border-[#26262A] rounded-[6px] px-3 text-white placeholder-[#8B8B94] focus:outline-none focus:border-zinc-500 tabular-nums"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[#8B8B94] text-[11px] uppercase tracking-wider mb-1">Longitude</label>
+                  <input
+                    type="number"
+                    step="any"
+                    required
+                    value={newSectorLng}
+                    onChange={(e) => setNewSectorLng(e.target.value)}
+                    placeholder="e.g. 75.5447"
+                    className="w-full h-9 bg-[#141416] border border-[#26262A] rounded-[6px] px-3 text-white placeholder-[#8B8B94] focus:outline-none focus:border-zinc-500 tabular-nums"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <div className="flex items-center gap-2">
+                  <label className="text-[#8B8B94] text-[12px]">Radius:</label>
+                  <select
+                    value={newSectorRadius}
+                    onChange={(e) => setNewSectorRadius(Number(e.target.value))}
+                    className="h-8 bg-[#141416] border border-[#26262A] rounded-[6px] px-2 text-[12px] text-white"
+                  >
+                    <option value={5}>5 km</option>
+                    <option value={15}>15 km</option>
+                    <option value={25}>25 km</option>
+                    <option value={50}>50 km</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleDetectGpsForSector}
+                    disabled={isDetectingGps}
+                    className="h-8 px-2.5 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-[12px] text-white rounded-[6px] transition-colors"
+                  >
+                    {isDetectingGps ? 'Detecting...' : '📍 Use Current GPS'}
+                  </button>
+                  <button
+                    type="submit"
+                    className="h-8 px-3.5 bg-white hover:bg-zinc-200 text-black font-semibold text-[12px] rounded-[6px] transition-colors"
+                  >
+                    Add Sector
+                  </button>
+                </div>
+              </div>
+            </form>
+
+            {/* List of Defined Sectors */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[12px] text-[#8B8B94] uppercase tracking-wider font-semibold block">
+                  Configured Sectors ({sectors.length})
+                </span>
+                <button
+                  type="button"
+                  onClick={handleResetSectors}
+                  className="text-[11px] text-[#8B8B94] hover:text-white underline transition-colors"
+                >
+                  Reset to default sectors
+                </button>
+              </div>
+              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                {sectors.map((sec) => (
+                  <div key={sec.id} className="p-2.5 bg-[#0E0E10] border border-[#26262A] rounded-[6px] flex items-center justify-between text-[13px]">
+                    <div>
+                      <p className="font-medium text-white">{sec.name}</p>
+                      <p className="text-[11px] text-[#8B8B94] tabular-nums mt-0.5">
+                        Center: {sec.lat.toFixed(4)}, {sec.lng.toFixed(4)} · Radius: {sec.radiusKm} km
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedSectorId(sec.id);
+                          setShowSectorModal(false);
+                        }}
+                        className="h-7 px-2.5 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-white text-[11px] rounded-[4px]"
+                      >
+                        Activate
+                      </button>
+                      {sectors.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteSector(sec.id)}
+                          className="text-[#8B8B94] hover:text-red-400 p-1"
+                          title="Remove sector"
+                        >
+                          <XMarkIcon className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* SECTOR GATE MODAL (Prompts when entering Command Center) */}
+      {showSectorGate && (
+        <div className="fixed inset-0 z-[2500] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#141416] border border-[#26262A] rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-200">
+            <div className="text-center space-y-1.5 pb-2 border-b border-[#26262A]">
+              <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-[#26262A] text-white font-bold text-sm mb-2 shadow-inner">
+                CP
+              </div>
+              <h2 className="text-[18px] font-semibold text-white tracking-tight">
+                Select Command Sector
+              </h2>
+              <p className="text-[13px] text-[#8B8B94] max-w-sm mx-auto">
+                Select your operational jurisdiction to focus live incident triage and volunteer dispatch:
+              </p>
+            </div>
+
+            {/* Sector list options */}
+            <div className="space-y-2 max-h-[340px] overflow-y-auto pr-1">
+              {sectors.map((sec) => (
+                <button
+                  key={sec.id}
+                  type="button"
+                  onClick={() => handleSelectGateSector(sec.id)}
+                  className="w-full text-left p-3.5 bg-[#0E0E10] hover:bg-[#1A1A1D] border border-[#26262A] hover:border-zinc-500 rounded-xl transition-all group flex items-center justify-between"
+                >
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 group-hover:scale-125 transition-transform" />
+                      <p className="font-semibold text-white text-[14px] group-hover:text-emerald-300 transition-colors">
+                        {sec.name}
+                      </p>
+                    </div>
+                    <p className="text-[12px] text-[#8B8B94] mt-1 tabular-nums pl-4">
+                      Center: {sec.lat.toFixed(4)}, {sec.lng.toFixed(4)} · Radius: {sec.radiusKm} km
+                    </p>
+                  </div>
+                  <span className="text-[12px] text-zinc-400 group-hover:text-white font-medium px-2.5 py-1 rounded-md bg-[#141416] border border-[#26262A] group-hover:border-zinc-500 transition-colors">
+                    Enter &rarr;
+                  </span>
+                </button>
+              ))}
+
+              {/* National Overview Option */}
+              <button
+                type="button"
+                onClick={() => handleSelectGateSector('ALL')}
+                className="w-full text-left p-3.5 bg-[#0E0E10]/60 hover:bg-[#1A1A1D] border border-dashed border-[#26262A] hover:border-zinc-500 rounded-xl transition-all group flex items-center justify-between"
+              >
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-sky-400" />
+                    <p className="font-semibold text-white text-[14px]">
+                      All Sectors (National Command)
+                    </p>
+                  </div>
+                  <p className="text-[12px] text-[#8B8B94] mt-0.5 pl-4">
+                    View and coordinate incidents across all jurisdictions nationwide.
+                  </p>
+                </div>
+                <span className="text-[12px] text-zinc-400 group-hover:text-white font-medium px-2.5 py-1 rounded-md bg-[#141416] border border-[#26262A] transition-colors">
+                  Overview &rarr;
+                </span>
+              </button>
+            </div>
+
+            <div className="pt-2 border-t border-[#26262A] flex items-center justify-between text-[12px]">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSectorGate(false);
+                  setShowSectorModal(true);
+                }}
+                className="text-[#8B8B94] hover:text-white flex items-center gap-1.5 transition-colors"
+              >
+                <PlusIcon className="w-3.5 h-3.5" />
+                <span>Define custom sector...</span>
+              </button>
+
+              <span className="text-[#8B8B94] text-[11px]">
+                You can change sectors anytime from top bar.
+              </span>
+            </div>
           </div>
         </div>
       )}

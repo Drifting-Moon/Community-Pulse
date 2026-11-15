@@ -57,7 +57,7 @@ export default function VolunteerLayout() {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <Link to="/volunteer/dashboard" className="font-bold text-lg text-white hover:text-emerald-400 transition-colors">
+                <Link to="/" title="Return to Main Portal Gateway" className="font-bold text-lg text-white hover:text-emerald-400 transition-colors">
                   CommunityPulse
                 </Link>
                 <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
