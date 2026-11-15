@@ -34,6 +34,7 @@ yarn-error.log*
 
 # Project Scratch Scripts
 *.py
+__pycache__/
 backend/*.py
 frontend/*.py
 frontend/scratch/

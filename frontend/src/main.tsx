@@ -2,17 +2,13 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import 'leaflet/dist/leaflet.css'
 import './index.css'
-import App from './App.tsx'
-import VolunteerApp from './VolunteerApp.tsx'
-
+import RootRouter from './RootRouter'
 import { BrowserRouter } from 'react-router-dom';
-
-const isVolunteer = window.location.search.includes('view=volunteer') || window.location.pathname.startsWith('/volunteer');
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
-      {isVolunteer ? <VolunteerApp /> : <App />}
+      <RootRouter />
     </BrowserRouter>
   </StrictMode>,
 )

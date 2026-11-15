@@ -1,22 +1,15 @@
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import axios from 'axios';
-import React, { useEffect, useState, useRef } from 'react';
+import { Routes, Route, useLocation, useNavigate, Link } from 'react-router-dom';
 import type { NeedEntity, VolunteerProfile, Prediction } from './types';
-import { MapContainer, TileLayer, Circle, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, CircleMarker, Tooltip, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet.heat';
-import { formatDistanceToNow, differenceInMinutes, format } from 'date-fns';
 
-import { saveOfflineReport, syncOfflineReports, clearOfflineQueue } from './offlineSync';
-
-import { Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import VolunteersPage from './pages/VolunteersPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import HistoryPage from './pages/HistoryPage';
-import AiAssistantPage from './pages/AiAssistantPage';
-import ReportPage from './pages/ReportPage';
-import VoiceAssistant from './components/VoiceAssistant';
-import VoiceCallModal from './components/VoiceCallModal';
-import PredictionAlertBar from './components/PredictionAlertBar';
+import AdminInventoryPage from './pages/AdminInventoryPage';
 
 import {
   SquaresFourIcon,
@@ -25,1466 +18,1034 @@ import {
   ClockCounterClockwiseIcon
 } from '@phosphor-icons/react';
 
-
-// Restored Heroicons for general UI elements
 import {
-  BoltIcon, ExclamationTriangleIcon, PaperAirplaneIcon,
-  SignalSlashIcon, MicrophoneIcon, StopCircleIcon, BellAlertIcon,
-  PhoneIcon, ChevronLeftIcon, SparklesIcon, CameraIcon,
-  ShieldCheckIcon,
-  XMarkIcon as XMarkMini
+  ArchiveBoxIcon,
+  PlusIcon,
+  XMarkIcon,
+  CheckCircleIcon,
+  ArrowPathIcon,
+  CameraIcon
 } from '@heroicons/react/24/outline';
 
+const API_BASE = import.meta.env.VITE_API_BASE || '';
 
-if (typeof window !== 'undefined') {
-  (window as unknown as { L: typeof L }).L = L;
+// Clean base map tiles using OpenStreetMap (No API key required)
+const TILE_LAYERS = {
+  dark: {
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    className: 'dark-tiles'
+  },
+  light: {
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    className: ''
+  }
+};
+
+function formatShortTimeAgo(timestamp: number): string {
+  const diffSec = Math.floor((Date.now() - timestamp) / 1000);
+  if (diffSec < 60) return 'Just now';
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDays = Math.floor(diffHr / 24);
+  return `${diffDays}d ago`;
 }
 
-const mapContainerStyle = { width: '100%', height: '100%', borderRadius: '0.75rem' };
-const center: [number, number] = [20.5937, 78.9629];
+// Map Controller: handles invalidateSize, initial fitBounds to active points, and flyTo on selected incident
+const MapController = ({ points, selectedNeed }: { points: [number, number][]; selectedNeed: NeedEntity | null }) => {
+  const map = useMap();
+  const hasFittedRef = useRef(false);
 
-// Custom Heatmap Layer using leaflet.heat
-const HeatmapOverlay = React.memo(({ data }: { data: { lat: number, lng: number, weight: number }[] }) => {
+  // Invalidate map size so Leaflet fills full grid/flex container properly
+  useEffect(() => {
+    map.invalidateSize();
+    const t = setTimeout(() => {
+      map.invalidateSize();
+    }, 200);
+    return () => clearTimeout(t);
+  }, [map]);
+
+  // Fit bounds on active points once data is loaded
+  useEffect(() => {
+    if (points.length > 0 && !hasFittedRef.current) {
+      try {
+        const bounds = L.latLngBounds(points);
+        map.fitBounds(bounds, { padding: [48, 48], maxZoom: 11 });
+        hasFittedRef.current = true;
+      } catch (e) {
+        console.warn('Map fitBounds error:', e);
+      }
+    }
+  }, [points, map]);
+
+  // Fly to selected incident on selection
+  useEffect(() => {
+    if (selectedNeed?.location?.lat && selectedNeed?.location?.lng) {
+      map.flyTo([selectedNeed.location.lat, selectedNeed.location.lng], 13, {
+        animate: true,
+        duration: 0.8
+      });
+    }
+  }, [selectedNeed, map]);
+
+  return null;
+};
+
+// Heatmap Overlay
+const HeatmapOverlay = React.memo(({ data, enabled }: { data: { lat: number; lng: number; weight: number }[]; enabled: boolean }) => {
   const map = useMap();
 
   useEffect(() => {
-    if (!data || data.length === 0) return;
+    if (!enabled || !data || data.length === 0 || !(L as any).heatLayer) return;
 
-    const points = data.map(p => [p.lat, p.lng, p.weight] as [number, number, number]);
-
-    if (!L.heatLayer) {
-      console.warn("Leaflet.heat not loaded yet...");
-      return;
-    }
-
-    const heatLayer = L.heatLayer(points, {
-      radius: 25,
-      blur: 15,
+    const points = data.map((p) => [p.lat, p.lng, p.weight] as [number, number, number]);
+    const heatLayer = (L as any).heatLayer(points, {
+      radius: 20,
+      blur: 14,
       max: 100,
       gradient: {
-        0.0: 'rgba(0, 0, 0, 0)',
-        0.3: 'rgba(56, 189, 248, 1)', // Sky blue
-        0.5: 'rgba(139, 92, 246, 1)', // Violet
-        0.8: 'rgba(244, 63, 94, 1)',  // Rose red
-        1.0: 'rgba(255, 255, 255, 1)' // White hot center
+        0.3: '#4C8DFF',
+        0.6: '#E8A317',
+        0.9: '#E5383B'
       }
     }).addTo(map);
 
     return () => {
       map.removeLayer(heatLayer);
     };
-  }, [data, map]);
+  }, [data, enabled, map]);
 
   return null;
 });
-
-// Component to listen for custom map events from external UI controls
-const MapEventListener = ({ center, zoom }: { center: [number, number], zoom: number }) => {
-  const map = useMap();
-  
-  useEffect(() => {
-    const handleZoomIn = () => map.zoomIn();
-    const handleZoomOut = () => map.zoomOut();
-    const handleRecenter = () => map.flyTo(center, zoom);
-
-    window.addEventListener('map-zoom-in', handleZoomIn);
-    window.addEventListener('map-zoom-out', handleZoomOut);
-    window.addEventListener('map-recenter', handleRecenter);
-
-    return () => {
-      window.removeEventListener('map-zoom-in', handleZoomIn);
-      window.removeEventListener('map-zoom-out', handleZoomOut);
-      window.removeEventListener('map-recenter', handleRecenter);
-    };
-  }, [map, center, zoom]);
-
-  return null;
-};
-
-// Add this component to handle map re-centering
-const ChangeView = React.memo(({ center, zoom }: { center: [number, number], zoom: number }) => {
-  const map = useMap();
-  useEffect(() => {
-    map.flyTo(center, zoom, {
-      duration: 1.5,
-      easeLinearity: 0.25
-    });
-  }, [center, zoom, map]);
-  return null;
-});
-
-// Adaptive Circle Component for Zoom-Aware Visibility and Pinpoint Precision
-const AdaptiveCircle = ({ need, isSelected, onClick }: { 
-  need: any, 
-  isSelected?: boolean, 
-  onClick?: () => void 
-}) => {
-  const map = useMap();
-  const [zoom, setZoom] = useState(map.getZoom());
-
-  useEffect(() => {
-    const onZoom = () => setZoom(map.getZoom());
-    map.on('zoomend', onZoom);
-    return () => { map.off('zoomend', onZoom); };
-  }, [map]);
-
-  const crisisType = (need.crisisType || 'other').toLowerCase();
-  const baseColor = (() => {
-    switch (crisisType) {
-      case 'medical': return '#EF4444';
-      case 'infrastructure': return '#F59E0B';
-      case 'food': return '#10B981';
-      case 'water':
-      case 'flood': return '#3B82F6';
-      case 'fire': return '#F97316';
-      default: return '#8B9CB8';
-    }
-  })();
-
-  // RADIUS LOGIC:
-  // Zoom Out (5) -> Large radius in meters to be visible
-  // Zoom In (15) -> Small radius in meters to be precise
-  // We use a base pixel size and convert to meters based on zoom
-  const pixelSize = isSelected ? 12 : 8;
-  const metersPerPixel = 40075016.686 * Math.abs(Math.cos(need.location.lat * Math.PI / 180)) / Math.pow(2, zoom + 8);
-  const radiusInMeters = pixelSize * metersPerPixel;
-
-  // For "Exact" locations, we add a solid center point
-  const isExact = need.isExact || (need.precision && need.precision > 0.8);
-
-  return (
-    <>
-      <Circle
-        center={[need.location.lat, need.location.lng]}
-        radius={isSelected ? radiusInMeters * 3 : radiusInMeters}
-        pathOptions={{
-          color: isSelected ? '#FFFFFF' : baseColor,
-          fillColor: baseColor,
-          fillOpacity: isSelected ? 0.4 : 0.6,
-          weight: isSelected ? 2 : 1,
-          className: isSelected ? 'animate-pulse-slow' : ''
-        }}
-        eventHandlers={{ click: onClick }}
-      />
-      {isExact && (
-        <Circle
-          center={[need.location.lat, need.location.lng]}
-          radius={radiusInMeters * 0.2} // Tight pinpoint
-          pathOptions={{
-            color: '#FFFFFF',
-            fillColor: '#FFFFFF',
-            fillOpacity: 1,
-            weight: 1
-          }}
-        />
-      )}
-    </>
-  );
-};
-
-const API_BASE = import.meta.env.VITE_API_BASE || '';
 
 export default function App() {
-  const navItems = [
-    { path: '/', label: 'Dashboard', icon: <SquaresFourIcon weight="duotone" size={24} /> },
-    { path: '/volunteers', label: 'Volunteers', icon: <UsersThreeIcon weight="duotone" size={24} /> },
-    { path: '/analytics', label: 'Analytics', icon: <ChartLineUpIcon weight="duotone" size={24} /> },
-    { path: '/history', label: 'History', icon: <ClockCounterClockwiseIcon weight="duotone" size={24} /> },
-  ];
-
-  const [needs, setNeeds] = useState<NeedEntity[]>([]);
-  const [volunteers, setVolunteers] = useState<VolunteerProfile[]>([]);
-  const [selectedNeed, setSelectedNeed] = useState<NeedEntity | null>(null);
-  const [dispatchResult, setDispatchResult] = useState<{ volunteer: VolunteerProfile, dispatchMessage: string } | null>(null);
-  const [loadingDispatch, setLoadingDispatch] = useState<boolean>(false);
-  const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
-  const [shake, setShake] = useState(false);
-
-  // Ingest form
-  const [ingestText, setIngestText] = useState('');
-  const [isIngesting, setIsIngesting] = useState(false);
-  const [selectedImage, setSelectedImage] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [ingestStatus, setIngestStatus] = useState<string | null>(null);
-  const [ingestStatusColor, setIngestStatusColor] = useState<string>('text-blue-400');
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Audio Recording
-  const [isRecording, setIsRecording] = useState(false);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-
-  // Sidebar State
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
-    return localStorage.getItem('sidebar-collapsed') === 'true';
-  });
-
-  // Time state for pure rendering of 'time ago' strings
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 10000);
-    return () => clearInterval(timer);
-  }, []);
-
-  // AI Chat Panel State
-  const [isAiChatOpen, setIsAiChatOpen] = useState(false);
-
-  // Predictions State
-  const [predictions, setPredictions] = useState<Prediction[]>([]);
-
-  useEffect(() => {
-    localStorage.setItem('sidebar-collapsed', isSidebarCollapsed.toString());
-  }, [isSidebarCollapsed]);
-
-  // UI State
-  const [mapLayer, setMapLayer] = useState<'dark' | 'light' | 'satellite'>('dark');
-  const [bgTheme, setBgTheme] = useState<'white' | 'black' | 'space'>(() => {
-    return (localStorage.getItem('bgTheme') as 'white' | 'black' | 'space') || 'black';
-  });
-  const isDark = bgTheme !== 'white';
-  const isSpace = bgTheme === 'space';
-
-  useEffect(() => {
-    localStorage.setItem('bgTheme', bgTheme);
-  }, [bgTheme]);
-
-
-  const theme = {
-    // Backgrounds
-    bg: isSpace ? 'nasa-bg' : (isDark ? 'bg-black' : 'bg-[#F0EEE8]'),
-
-    // CHANGED: Reduced from backdrop-blur-3xl to backdrop-blur-lg
-    surface: isSpace ? 'bg-black/40 backdrop-blur-lg' : (isDark ? 'bg-zinc-900/80 backdrop-blur-2xl' : 'bg-white'),
-    surfaceSoft: isSpace ? 'bg-white/10' : (isDark ? 'bg-zinc-800/50' : 'bg-[#EEEcE6]'),
-    surfaceCard: isSpace ? 'bg-black/60' : (isDark ? 'bg-zinc-900' : 'bg-white'),
-
-    // CHANGED: Reduced from backdrop-blur-xl to backdrop-blur-md
-    surfacePanel: isSpace ? 'bg-white/5 backdrop-blur-md' : (isDark ? 'bg-zinc-900/50' : 'bg-[#EEEcE6]'),
-
-    // CHANGED: Reduced from backdrop-blur-2xl to backdrop-blur-md
-    sidebar: isSpace ? 'bg-black/60 backdrop-blur-md' : (isDark ? 'bg-black' : 'bg-zinc-100'),
-    banner: isSpace ? 'bg-black/60 backdrop-blur-md' : (isDark ? 'bg-zinc-950' : 'bg-zinc-100'),
-
-    // Borders
-    border: isSpace ? 'border-white/10' : (isDark ? 'border-white/5' : 'border-black/5'),
-    borderBright: isSpace ? 'border-white/20' : (isDark ? 'border-white/10' : 'border-black/10'),
-
-    // Text
-    text: isDark ? 'text-zinc-100' : 'text-zinc-900',
-    textMuted: isDark ? 'text-zinc-400' : 'text-zinc-600',
-    textDim: isDark ? 'text-zinc-500' : 'text-zinc-500',
-    accent: isSpace ? 'text-indigo-400' : (isDark ? 'text-sky-400' : 'text-sky-600'),
-
-    // Buttons
-    buttonPrimary: isSpace ? 'bg-indigo-600 text-white' : (isDark ? 'bg-white text-black' : 'bg-black text-white'),
-
-    // Hover
-    hoverSurface: isSpace ? 'hover:bg-white/10' : (isDark ? 'hover:bg-zinc-800/50' : 'hover:bg-zinc-100'),
-  };
-  const [criticalAlerts, setCriticalAlerts] = useState<NeedEntity[]>([]);
-  const [dismissedAlertIds, setDismissedAlertIds] = useState<string[]>([]);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [sortBy, setSortBy] = useState<'newest' | 'score_desc' | 'score_asc' | 'city' | 'sla' | 'type'>('newest');
-
-  // New Layout State
-  const [showBanner, setShowBanner] = useState(true);
-
   const location = useLocation();
   const navigate = useNavigate();
 
-  useEffect(() => {
-    const fetchPredictions = async () => {
-      try {
-        const res = await axios.get(`${API_BASE}/api/predictions`);
-        setPredictions(res.data.predictions || []);
-      } catch (err) {
-        console.error('Error fetching predictions for map:', err);
-      }
-    };
-    fetchPredictions();
-    const interval = setInterval(fetchPredictions, 30000);
-    return () => clearInterval(interval);
-  }, []);
+  // Core Data
+  const [needs, setNeeds] = useState<NeedEntity[]>([]);
+  const [volunteers, setVolunteers] = useState<VolunteerProfile[]>([]);
+  const [selectedNeed, setSelectedNeed] = useState<NeedEntity | null>(null);
+  const [predictions, setPredictions] = useState<Prediction[]>([]);
+  const [predictionBannerVisible, setPredictionBannerVisible] = useState(true);
 
-  const handleClearSelection = () => {
-    setSelectedNeed(null);
-    setDispatchResult(null);
-  };
+  // UI state
+  const [sortBy, setSortBy] = useState<'criticality' | 'newest'>('criticality');
+  const [showResolvedInList, setShowResolvedInList] = useState(false);
+  const [mapLayer, setMapLayer] = useState<'dark' | 'light'>('dark');
+  const [heatmapEnabled, setHeatmapEnabled] = useState(false);
+  const [showAvatarMenu, setShowAvatarMenu] = useState(false);
+  const [showNewReportModal, setShowNewReportModal] = useState(false);
+  const [loadingDispatch, setLoadingDispatch] = useState(false);
 
+  // Single deduplicated toast alert
+  const [toast, setToast] = useState<{ need: NeedEntity; count: number } | null>(null);
+
+  // New report modal form state
+  const [newReportText, setNewReportText] = useState('');
+  const [newReportImage, setNewReportImage] = useState<File | null>(null);
+  const [isSubmittingReport, setIsSubmittingReport] = useState(false);
+
+  const avatarMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close avatar menu on outside click or Esc
   useEffect(() => {
-    const handleEsc = (e: KeyboardEvent) => {
+    const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        handleClearSelection();
-        setIsAiChatOpen(false);
+        setShowAvatarMenu(false);
+        if (selectedNeed) setSelectedNeed(null);
       }
     };
-    window.addEventListener('keydown', handleEsc);
-    return () => window.removeEventListener('keydown', handleEsc);
-  }, []);
-
-  useEffect(() => {
-    const fetchVolunteers = async () => {
-      try {
-        const response = await axios.get(`${API_BASE}/volunteers`);
-        setVolunteers(response.data);
-      } catch (e) {
-        console.error("Error fetching volunteers:", e);
+    const handleClickOutside = (e: MouseEvent) => {
+      if (avatarMenuRef.current && !avatarMenuRef.current.contains(e.target as Node)) {
+        setShowAvatarMenu(false);
       }
     };
-    void fetchVolunteers();
-  }, []);
 
-  // Simulation State
-  const [isSimulating, setIsSimulating] = useState(false);
-  const [isVoiceOpen, setIsVoiceOpen] = useState(false);
-  const [isCallModalOpen, setIsCallModalOpen] = useState(false);
-  const simTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const mockScenarios = [
-    "Severe earthquake in Gujarat near Kutch. Buildings damaged, people need shelter.",
-    "Major train derailment in Odisha near Balasore. Many passengers injured, need urgent medical help.",
-    "Cyclonic storm hitting Vizag beach area. Trees uprooted, power lines down, need rescue teams.",
-    "Landslide in Shimla near Mall Road. Road blocked, 2 buses stuck, need infrastructure support.",
-    "Heatwave alert in Rajasthan. Water scarcity in rural villages, need water distribution."
-  ];
-
-  const stopSimulation = () => {
-    if (simTimerRef.current) clearInterval(simTimerRef.current);
-    setIsSimulating(false);
-  };
-
-  const startSimulation = () => {
-    setIsSimulating(true);
-    let count = 0;
-
-    const triggerSim = async () => {
-      const scenario = mockScenarios[Math.floor(Math.random() * mockScenarios.length)];
-      try {
-        await axios.post(`${API_BASE}/ingest`, { text: scenario });
-      } catch (err) {
-        console.error("Simulated ingestion failed:", err);
-      }
-      count++;
-      if (count >= 5) stopSimulation();
-    };
-
-    triggerSim();
-    simTimerRef.current = setInterval(triggerSim, 8000);
-  };
-
-  useEffect(() => {
-    if ("Notification" in window) {
-      Notification.requestPermission();
-    }
-
-    const doSync = async () => {
-      await syncOfflineReports(API_BASE, (count) => {
-        console.log(`Syncing ${count} queued reports...`);
-      });
-    };
-
-    const handleOnline = () => { setIsOnline(true); doSync(); };
-    const handleOffline = () => setIsOnline(false);
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-
-    if (navigator.onLine) doSync();
-
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('mousedown', handleClickOutside);
     return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('mousedown', handleClickOutside);
     };
+  }, [selectedNeed]);
+
+  // Polling data
+  const fetchNeeds = async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/needs`);
+      setNeeds(res.data || []);
+    } catch (e) {
+      console.error('Error fetching needs:', e);
+    }
+  };
+
+  const fetchVolunteers = async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/volunteers`);
+      setVolunteers(res.data || []);
+    } catch (e) {
+      console.error('Error fetching volunteers:', e);
+    }
+  };
+
+  useEffect(() => {
+    fetchNeeds();
+    fetchVolunteers();
+    const interval = setInterval(fetchNeeds, 6000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
-    const fetchNeeds = async () => {
-      if (!isOnline) return;
-      try {
-        const response = await axios.get(`${API_BASE}/needs`);
-        const fetchedNeeds: NeedEntity[] = response.data;
+    axios.get(`${API_BASE}/api/predictions`).then((res) => {
+      setPredictions(res.data.predictions || []);
+    }).catch(() => {});
+  }, []);
 
-        const actionableAlert = fetchedNeeds.find(n =>
-          n.status !== 'RESOLVED' &&
-          (n.criticalityScore > 80 || (now - n.reportedAt > 30 * 60 * 1000))
-        );
-
-        if (actionableAlert && !criticalAlerts.some(a => a.id === actionableAlert.id) && !dismissedAlertIds.includes(actionableAlert.id)) {
-          setCriticalAlerts(prev => [...prev, actionableAlert]);
-          if ("Notification" in window && Notification.permission === "granted") {
-            new Notification(`Urgent Crisis at ${actionableAlert.location.name}`, {
-              body: `Score: ${actionableAlert.criticalityScore.toFixed(1)}. Please assign a volunteer.`,
-              icon: '/favicon.svg'
-            });
-          }
-        }
-
-        setNeeds(fetchedNeeds);
-      } catch (error) {
-        console.error("Error fetching needs:", error);
-      }
-    };
-    fetchNeeds();
-    const interval = setInterval(fetchNeeds, 3000);
-    return () => clearInterval(interval);
-  }, [isOnline, criticalAlerts, dismissedAlertIds, now]);
-
+  // Alert simulation: trigger toast on high-priority needs
+  const knownNeedIdsRef = useRef<Map<string, number>>(new Map());
   useEffect(() => {
-    if (criticalAlerts.length === 0) return;
-    const timer = setTimeout(() => {
-      setCriticalAlerts(prev => prev.slice(1));
-    }, 10000);
-    return () => clearTimeout(timer);
-  }, [criticalAlerts]);
+    if (needs.length === 0) return;
+    needs.forEach((need) => {
+      const prevCount = knownNeedIdsRef.current.get(need.id);
+      knownNeedIdsRef.current.set(need.id, need.reportCount);
+
+      if (prevCount !== undefined && need.reportCount > prevCount && (need.criticalityScore || 0) >= 80) {
+        setToast((curr) => {
+          if (curr && curr.need.id === need.id) {
+            return { need, count: curr.count + 1 };
+          }
+          return { need, count: 1 };
+        });
+      }
+    });
+  }, [needs]);
+
+  // Actions: Verify / Reject / Dispatch / Resolve
+  const handleVerify = async (id: string, verificationStatus: 'VERIFIED' | 'REJECTED_SPAM') => {
+    try {
+      await axios.patch(`${API_BASE}/needs/${id}/verify`, { verificationStatus });
+      const newStatus = verificationStatus === 'REJECTED_SPAM' ? 'FALSE_ALARM' : 'VERIFIED';
+      setNeeds((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, status: newStatus as any, verificationStatus } : n))
+      );
+      if (selectedNeed?.id === id) {
+        setSelectedNeed((prev) => (prev ? { ...prev, status: newStatus as any, verificationStatus } : null));
+      }
+    } catch (e) {
+      console.error('Error updating triage status:', e);
+    }
+  };
 
   const handleDispatch = async (needId: string) => {
-    if (!isOnline) return alert("Must be online to dispatch resources.");
     setLoadingDispatch(true);
-    setDispatchResult(null);
     try {
-      const response = await axios.post(`${API_BASE}/dispatch`, { needId });
-      setDispatchResult(response.data);
-      if (response.data.need) {
-        setSelectedNeed(response.data.need);
-        setNeeds(prev => prev.map(n => n.id === needId ? response.data.need : n));
+      const res = await axios.post(`${API_BASE}/dispatch`, { needId });
+      fetchNeeds();
+      if (selectedNeed?.id === needId) {
+        setSelectedNeed(res.data.need);
       }
-      setCriticalAlerts(prev => prev.filter(a => a.id !== needId));
-      setToastMessage(`✓ Dispatched ${response.data.volunteer.name} (${response.data.volunteer.ngo || 'Responder'})! Help is en route.`);
-      setTimeout(() => setToastMessage(null), 4000);
-    } catch (error: unknown) {
-      const message = axios.isAxiosError(error)
-        ? (error.response?.data?.error || error.message)
-        : (error instanceof Error ? error.message : "Unknown error");
-      alert("Dispatch error: " + message);
+    } catch (e) {
+      console.error('Dispatch failed:', e);
     } finally {
       setLoadingDispatch(false);
     }
   };
 
-  const startRecording = async () => {
-    interface SpeechRecognitionEvent {
-      resultIndex: number;
-      results: {
-        [key: number]: {
-          [key: number]: { transcript: string };
-          isFinal: boolean;
-        };
-        length: number;
-      };
-    }
-
-    interface SpeechRecognitionErrorEvent {
-      error: string;
-    }
-
-    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-
-    if (!SpeechRec) {
-      alert("Voice input is not supported in this browser. Please use Chrome and type your report.");
-      return;
-    }
-
-    const recognition = new SpeechRec();
-    recognition.lang = 'en-IN';
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-    recognition.continuous = false;
-
-    recognition.onstart = () => {
-      setIsRecording(true);
-    };
-
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
-      const transcript = event.results[0][0].transcript;
-      setIngestText(transcript);
-      setIsRecording(false);
-    };
-
-    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-      console.error('Speech recognition error:', event.error);
-      setIsRecording(false);
-      if (event.error === 'not-allowed') {
-        alert('Microphone access denied. Please allow microphone access in your browser settings.');
-      } else {
-        setIngestText('[Voice input failed. Please type your report below.]');
-      }
-    };
-
-    recognition.onend = () => {
-      setIsRecording(false);
-    };
-
-    mediaRecorderRef.current = recognition as unknown as MediaRecorder;
-    recognition.start();
-
-    setTimeout(() => {
-      try {
-        recognition.stop();
-      } catch (err) {
-        console.debug('Recognition auto-stop failed or already stopped:', err);
-      }
-    }, 15000);
-  };
-
-  const stopRecording = () => {
-    const recognition = mediaRecorderRef.current as unknown as { stop: () => void };
-    if (recognition) {
-      try {
-        recognition.stop();
-      } catch (err) {
-        console.debug('Manual recognition stop failed:', err);
-      }
-      setIsRecording(false);
-    }
-  };
-
-  const handleClearAll = async () => {
-    if (!window.confirm("Are you sure you want to clear all rescue signals and the offline queue?")) return;
-    try {
-      await axios.delete(`${API_BASE}/needs`);
-      await clearOfflineQueue();
-      setNeeds([]);
-      setSelectedNeed(null);
-      setDispatchResult(null);
-      setCriticalAlerts([]);
-    } catch (e) {
-      console.error('Failed to clear:', e);
-      alert("Failed to clear history.");
-    }
-  };
-
-  const handleIngest = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!ingestText.trim() && !selectedImage) return;
-    setIsIngesting(true);
-
-    setIngestStatus("📡 Sending to Gemini AI...");
-    setIngestStatusColor("text-blue-400");
-
-    const timer1 = setTimeout(() => {
-      setIngestStatus("🧠 Extracting location, type and scale...");
-    }, 1500);
-
-    const timer2 = setTimeout(() => {
-      setIngestStatus("⏳ Almost done...");
-    }, 3000);
-
-    try {
-      if (!isOnline) {
-        if (selectedImage) {
-          alert("Offline Mode: Images cannot be saved offline in this demo. Sending text only.");
-        }
-        await saveOfflineReport({ text: ingestText });
-        setIngestStatus("✅ Crisis signal saved locally!");
-        setIngestStatusColor("text-green-400");
-        setTimeout(() => setIngestStatus(null), 3000);
-        setIngestText('');
-        setSelectedImage(null);
-        setImagePreview(null);
-      } else {
-        const formData = new FormData();
-        formData.append('text', ingestText);
-        if (selectedImage) {
-          formData.append('image', selectedImage);
-        }
-
-        const res = await axios.post(`${API_BASE}/ingest`, formData, {
-          headers: { 'Content-Type': 'multipart/form-data' }
-        });
-
-        if (res.data.isLocal) {
-          setIngestStatus("⚡ AI unavailable — processed locally");
-          setIngestStatusColor("text-amber-400");
-        } else {
-          setIngestStatus("✅ Crisis signal ingested successfully!");
-          setIngestStatusColor("text-green-400");
-        }
-        setTimeout(() => setIngestStatus(null), 3000);
-
-        setIngestText('');
-        setSelectedImage(null);
-        setImagePreview(null);
-      }
-    } catch (error: unknown) {
-      console.error("Submission failed:", error);
-      const isUnclear = axios.isAxiosError(error) && error.response?.status === 422;
-
-      if (isUnclear) {
-        setIngestStatus("⚠️ Could not understand input — add location and crisis type");
-        setIngestStatusColor("text-amber-400");
-        setShake(true);
-        setTimeout(() => setShake(false), 400);
-      } else {
-        setIngestStatus("❌ Submission failed — check connection");
-        setIngestStatusColor("text-red-500");
-        setTimeout(() => setIngestStatus(null), 5000);
-        setIngestText('');
-        setSelectedImage(null);
-        setImagePreview(null);
-      }
-    } finally {
-      setIsIngesting(false);
-      clearTimeout(timer1);
-      clearTimeout(timer2);
-    }
-  };
-
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setSelectedImage(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const removeImage = () => {
-    setSelectedImage(null);
-    setImagePreview(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  const getScoreColor = (score: number) => {
-    if (score > 70) return 'bg-red-600 text-white';
-    if (score > 40) return 'bg-yellow-500 text-gray-900';
-    return 'bg-green-500 text-white';
-  };
-
-  const getCrisisStyle = (type: string) => {
-    const safeType = (type || 'other').toLowerCase();
-    switch (safeType) {
-      case 'medical': return { borderColor: '#EF4444', icon: '🏥' };
-      case 'infrastructure': return { borderColor: '#F59E0B', icon: '🏗' };
-      case 'food': return { borderColor: '#10B981', icon: '🍛' };
-      case 'water':
-      case 'flood': return { borderColor: '#3B82F6', icon: '🌊' };
-      case 'fire': return { borderColor: '#F97316', icon: '🔥' };
-      default: return { borderColor: '#8B9CB8', icon: '🚨' };
-    }
-  };
-
   const handleResolve = async (id: string) => {
     try {
-      await axios.post(`${API_BASE}/needs/${id}/resolve`);
-      setNeeds(prev => prev.map(n => n.id === id ? { ...n, status: 'RESOLVED' } : n));
-      if (selectedNeed?.id === id) setSelectedNeed(prev => prev ? { ...prev, status: 'RESOLVED' } : null);
-      setToastMessage("Crisis marked as Resolved. Database updated.");
-      setTimeout(() => setToastMessage(null), 3000);
-    } catch (err) {
-      console.error("Failed to resolve crisis:", err);
+      await axios.post(`${API_BASE}/dispatch/resolve`, {
+        needId: id,
+        notes: 'Resolved by Central Dispatch Command.',
+        volunteerName: 'Central Command'
+      });
+      setNeeds((prev) => prev.map((n) => (n.id === id ? { ...n, status: 'RESOLVED' } : n)));
+      if (selectedNeed?.id === id) {
+        setSelectedNeed((prev) => (prev ? { ...prev, status: 'RESOLVED' } : null));
+      }
+    } catch (e) {
+      console.error('Error resolving incident:', e);
     }
   };
 
-  const getGoldenHourColor = (timestamp: number) => {
-    const mins = (now - timestamp) / (1000 * 60);
-    if (mins < 30) return 'text-green-400';
-    if (mins < 60) return 'text-yellow-400';
-    return 'text-red-500 font-bold animate-pulse';
-  };
+  const handleCreateReport = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newReportText.trim() && !newReportImage) return;
 
-  const heatmapData = (needs || []).filter(n => n?.location?.lat && n?.location?.lng).map(n => ({
-    lat: n.location.lat,
-    lng: n.location.lng,
-    weight: n.criticalityScore || 0
-  }));
+    setIsSubmittingReport(true);
+    try {
+      const formData = new FormData();
+      formData.append('text', newReportText);
+      if (newReportImage) formData.append('image', newReportImage);
 
-  const getSortedNeeds = () => {
-    const sorted = [...needs];
-    switch (sortBy) {
-      case 'newest':
-        return sorted.sort((a, b) => b.reportedAt - a.reportedAt);
-      case 'score_desc':
-        return sorted.sort((a, b) => (b.criticalityScore || 0) - (a.criticalityScore || 0));
-      case 'score_asc':
-        return sorted.sort((a, b) => (a.criticalityScore || 0) - (b.criticalityScore || 0));
-      case 'city':
-        return sorted.sort((a, b) => (a.location?.name || '').localeCompare(b.location?.name || ''));
-      case 'sla':
-        return sorted.sort((a, b) => {
-          const aMins = differenceInMinutes(now, a.reportedAt);
-          const bMins = differenceInMinutes(now, b.reportedAt);
-          const aBreached = aMins >= 60 && a.status !== 'RESOLVED';
-          const bBreached = bMins >= 60 && b.status !== 'RESOLVED';
-          if (aBreached && !bBreached) return -1;
-          if (!aBreached && bBreached) return 1;
-          return b.reportedAt - a.reportedAt;
-        });
-      case 'type':
-        return sorted.sort((a, b) => (a.crisisType || '').localeCompare(b.crisisType || ''));
-      default:
-        return sorted;
+      await axios.post(`${API_BASE}/ingest`, formData);
+      setNewReportText('');
+      setNewReportImage(null);
+      setShowNewReportModal(false);
+      fetchNeeds();
+    } catch (e) {
+      console.error('Failed to ingest report:', e);
+    } finally {
+      setIsSubmittingReport(false);
     }
   };
 
-  const dashboardContent = (
-    <div className={`flex-1 flex flex-row overflow-hidden relative h-full transition-all duration-300 ease-in-out ${isAiChatOpen ? 'pr-[360px]' : 'pr-0'}`}>
-      {!isOnline && (
-        <div className="absolute top-0 left-0 right-0 z-[3000] bg-amber-600 text-white text-[11px] font-bold py-1.5 px-4 flex items-center justify-center gap-2 shadow-lg animate-pulse">
-          <SignalSlashIcon className="w-4 h-4" />
-          📶 Offline — reports are being saved locally and will sync when reconnected
+  // Active metrics
+  // "must equal Active crises stat; list shows only unresolved by default"
+  const activeCount = needs.filter((n) => n.status !== 'RESOLVED' && n.status !== 'FALSE_ALARM').length;
+  const enRouteCount = needs.filter((n) => n.status === 'EN_ROUTE' || (n.enRouteVolunteers && n.enRouteVolunteers.length > 0)).length;
+  const volunteersReady = volunteers.filter((v) => v.status === 'AVAILABLE').length;
+  const resolvedCount = needs.filter((n) => n.status === 'RESOLVED').length;
+
+  // Filter & sort incidents for dashboard list
+  const dashboardIncidents = useMemo(() => {
+    let list = needs.filter((n) => {
+      if (showResolvedInList) return true;
+      return n.status !== 'RESOLVED' && n.status !== 'FALSE_ALARM';
+    });
+
+    if (sortBy === 'criticality') {
+      list.sort((a, b) => (b.criticalityScore || 0) - (a.criticalityScore || 0));
+    } else {
+      list.sort((a, b) => b.reportedAt - a.reportedAt);
+    }
+    return list;
+  }, [needs, sortBy, showResolvedInList]);
+
+  const heatmapData = useMemo(() => {
+    return needs
+      .filter((n) => n.location?.lat && n.location?.lng)
+      .map((n) => ({
+        lat: n.location.lat,
+        lng: n.location.lng,
+        weight: n.criticalityScore || 20
+      }));
+  }, [needs]);
+
+  const activePoints: [number, number][] = useMemo(() => {
+    return needs
+      .filter((n) => n.location?.lat && n.location?.lng && n.status !== 'RESOLVED' && n.status !== 'FALSE_ALARM')
+      .map((n) => [n.location.lat, n.location.lng]);
+  }, [needs]);
+
+  // Current page title derived from route
+  const pageTitle = useMemo(() => {
+    const p = location.pathname;
+    if (p.includes('/volunteers')) return 'Volunteers';
+    if (p.includes('/inventory')) return 'Inventory';
+    if (p.includes('/analytics')) return 'Analytics';
+    if (p.includes('/history')) return 'History';
+    return 'Dashboard';
+  }, [location.pathname]);
+
+  const navItems = [
+    { path: '/admin', label: 'Dashboard', icon: <SquaresFourIcon size={18} /> },
+    { path: '/admin/volunteers', label: 'Volunteers', icon: <UsersThreeIcon size={18} /> },
+    { path: '/admin/inventory', label: 'Inventory', icon: <ArchiveBoxIcon className="w-[18px] h-[18px]" /> },
+    { path: '/admin/analytics', label: 'Analytics', icon: <ChartLineUpIcon size={18} /> },
+    { path: '/admin/history', label: 'History', icon: <ClockCounterClockwiseIcon size={18} /> },
+  ];
+
+  return (
+    <>
+      {/* Notice for screens smaller than 1024px */}
+      <div className="lg:hidden h-screen w-screen bg-[#0E0E10] text-[#F2F2F3] flex flex-col items-center justify-center p-6 text-center font-sans">
+        <div className="w-10 h-10 rounded-lg bg-[#26262A] flex items-center justify-center font-semibold text-[15px] mb-4">
+          CP
+        </div>
+        <h2 className="text-[20px] font-semibold mb-2">Open on a larger screen</h2>
+        <p className="text-[13px] text-[#8B8B94] max-w-sm">
+          The CommunityPulse Admin Command Center is optimized for desktop displays (1024px and wider). Please switch to a laptop or desktop monitor.
+        </p>
+      </div>
+
+      {/* Main Admin Desktop Shell: h-dvh grid [232px_1fr] at >=1280px, [64px_1fr] at 1024-1279px */}
+      <div className="hidden lg:grid h-dvh grid-cols-[64px_1fr] xl:grid-cols-[232px_1fr] bg-[#0E0E10] text-[#F2F2F3] font-sans overflow-hidden">
+        {/* Left Sidebar */}
+        <aside className="border-r border-[#26262A] bg-[#0E0E10] flex flex-col justify-between py-4 px-2 xl:px-3">
+          <div className="space-y-6">
+            {/* Logo Mark + Title */}
+            <div className="flex items-center gap-3 px-2">
+              <div className="w-8 h-8 rounded-lg bg-[#26262A] text-white flex items-center justify-center font-semibold text-[13px] shrink-0">
+                CP
+              </div>
+              <span className="hidden xl:inline text-[15px] font-semibold tracking-tight text-white truncate">
+                CommunityPulse
+              </span>
+            </div>
+
+            {/* Nav items: 40px high, 8px radius */}
+            <nav className="space-y-1">
+              {navItems.map((item) => {
+                const isActive =
+                  item.path === '/admin'
+                    ? location.pathname === '/admin' || location.pathname === '/admin/'
+                    : location.pathname.startsWith(item.path);
+
+                return (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    title={item.label}
+                    className={`h-10 rounded-[8px] flex items-center gap-3 px-3 transition-colors text-[15px] ${
+                      isActive
+                        ? 'bg-[#1A1A1D] text-white font-medium'
+                        : 'text-[#8B8B94] hover:text-[#F2F2F3] hover:bg-[#141416]'
+                    }`}
+                  >
+                    <span className="shrink-0">{item.icon}</span>
+                    <span className="hidden xl:inline truncate">{item.label}</span>
+                  </Link>
+                );
+              })}
+            </nav>
+          </div>
+        </aside>
+
+        {/* Right Shell: Top bar (56px) + Main area */}
+        <div className="flex flex-col h-dvh overflow-hidden min-w-0">
+          {/* Top Bar (56px) */}
+          <header className="h-14 border-b border-[#26262A] bg-[#0E0E10] px-6 flex items-center justify-between shrink-0">
+            {/* Page Title */}
+            <h1 className="text-[20px] font-semibold text-white tracking-tight">
+              {pageTitle}
+            </h1>
+
+            {/* Right Controls: New Report button + Avatar menu */}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setShowNewReportModal(true)}
+                className="h-9 px-3.5 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-white rounded-[8px] text-[13px] font-medium transition-colors flex items-center gap-1.5"
+              >
+                <PlusIcon className="w-4 h-4 text-white" />
+                <span>New report</span>
+              </button>
+
+              {/* Avatar menu trigger */}
+              <div className="relative" ref={avatarMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setShowAvatarMenu((prev) => !prev)}
+                  className="w-8 h-8 rounded-full bg-[#26262A] text-white text-[13px] font-semibold flex items-center justify-center hover:ring-1 hover:ring-[#8B8B94] transition-all"
+                  title="Account menu"
+                >
+                  AD
+                </button>
+
+                {showAvatarMenu && (
+                  <div className="absolute right-0 top-full mt-2 w-52 bg-[#141416] border border-[#26262A] rounded-[10px] shadow-xl p-2 z-[1000] text-[13px]">
+                    <div className="px-3 py-2 border-b border-[#26262A] mb-1">
+                      <p className="font-semibold text-white truncate">Admin User</p>
+                      <p className="text-[11px] text-[#8B8B94]">Dispatcher</p>
+                    </div>
+                    <Link
+                      to="/volunteer"
+                      onClick={() => setShowAvatarMenu(false)}
+                      className="block px-3 py-2 text-[#F2F2F3] hover:bg-[#1A1A1D] rounded-[8px] transition-colors"
+                    >
+                      Open field portal
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAvatarMenu(false);
+                        navigate('/');
+                      }}
+                      className="w-full text-left px-3 py-2 text-[#8B8B94] hover:text-white hover:bg-[#1A1A1D] rounded-[8px] transition-colors"
+                    >
+                      Sign out
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </header>
+
+          {/* Main Area: Render child routes or Dashboard */}
+          <main className="flex-1 overflow-y-auto min-h-0 bg-[#0E0E10]">
+            <Routes>
+              {/* Dashboard */}
+              <Route
+                index
+                element={
+                  <div className="h-full flex flex-col min-h-0 p-6 space-y-4 overflow-hidden">
+                    {/* Row 1: Stat strip (h-[88px], 1 bordered container divided into 4 equal cells) */}
+                    <div className="h-[88px] border border-[#26262A] bg-[#141416] rounded-[10px] grid grid-cols-4 divide-x divide-[#26262A] shrink-0">
+                      <div className="flex flex-col justify-center px-6">
+                        <span className="text-[13px] text-[#8B8B94]">Active crises</span>
+                        <span className="text-[32px] font-semibold text-white leading-none mt-1 tabular-nums">
+                          {activeCount}
+                        </span>
+                      </div>
+                      <div className="flex flex-col justify-center px-6">
+                        <span className="text-[13px] text-[#8B8B94]">Responders en route</span>
+                        <span className="text-[32px] font-semibold text-white leading-none mt-1 tabular-nums">
+                          {enRouteCount}
+                        </span>
+                      </div>
+                      <div className="flex flex-col justify-center px-6">
+                        <span className="text-[13px] text-[#8B8B94]">Volunteers ready</span>
+                        <span className="text-[32px] font-semibold text-white leading-none mt-1 tabular-nums">
+                          {volunteersReady}
+                        </span>
+                      </div>
+                      <div className="flex flex-col justify-center px-6">
+                        <span className="text-[13px] text-[#8B8B94]">Incidents resolved</span>
+                        <span className="text-[32px] font-semibold text-white leading-none mt-1 tabular-nums">
+                          {resolvedCount}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Row 2: AI prediction line (h-10, amber on #1C1608 with 1px #3A2E0E border) */}
+                    {predictionBannerVisible && predictions.length > 0 && (
+                      <div className="h-10 px-4 bg-[#1C1608] border border-[#3A2E0E] rounded-[8px] text-[13px] text-[#E8A317] flex items-center justify-between shrink-0">
+                        <div className="truncate">
+                          <span>{predictions[0].city} · Flood risk predicted. {predictions[0].recommendedPreventiveAction}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setPredictionBannerVisible(false)}
+                          className="text-[#E8A317] hover:text-white p-1 ml-4"
+                          title="Dismiss"
+                        >
+                          <XMarkIcon className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Row 3: Workspace fills the rest, grid [1fr_clamp(380px,28vw,480px)] gap-4 */}
+                    <div className="flex-1 grid grid-cols-[1fr_clamp(380px,28vw,480px)] gap-4 min-h-0 h-[calc(100vh-200px)] relative">
+                      {/* MAP (Left) */}
+                      <div className="w-full h-full border border-[#26262A] rounded-[10px] overflow-hidden relative z-0 isolate bg-[#141416]">
+                        <MapContainer
+                          center={[20.5937, 78.9629]}
+                          zoom={5}
+                          style={{ width: '100%', height: '100%', minHeight: '100%' }}
+                          zoomControl={false}
+                        >
+                          <TileLayer
+                            key={mapLayer}
+                            url={TILE_LAYERS[mapLayer].url}
+                            attribution={TILE_LAYERS[mapLayer].attribution}
+                            className={TILE_LAYERS[mapLayer].className}
+                            maxZoom={19}
+                          />
+                          <MapController points={activePoints} selectedNeed={selectedNeed} />
+                          <HeatmapOverlay data={heatmapData} enabled={heatmapEnabled} />
+
+                          {/* Pins: 14px circles colored by severity (>=85 red, 65-84 amber, <65 gray) */}
+                          {needs.map((n) => {
+                            if (!n.location?.lat || !n.location?.lng) return null;
+                            const isSelected = selectedNeed?.id === n.id;
+                            const score = n.criticalityScore || 0;
+                            const pinColor = score >= 85 ? '#E5383B' : score >= 65 ? '#E8A317' : '#8B8B94';
+
+                            return (
+                              <CircleMarker
+                                key={n.id}
+                                center={[n.location.lat, n.location.lng]}
+                                radius={isSelected ? 10 : 7}
+                                pathOptions={{
+                                  color: isSelected ? '#FFFFFF' : '#0E0E10',
+                                  weight: 2,
+                                  fillColor: pinColor,
+                                  fillOpacity: 1
+                                }}
+                                eventHandlers={{
+                                  click: () => setSelectedNeed(n)
+                                }}
+                              >
+                                <Tooltip direction="top" offset={[0, -8]} opacity={1}>
+                                  <span className="text-[13px] font-sans font-medium">
+                                    {n.crisisType} · {n.location.name} · Score {score.toFixed(0)}
+                                  </span>
+                                </Tooltip>
+                              </CircleMarker>
+                            );
+                          })}
+                        </MapContainer>
+
+                        {/* Top-left Layer switch: Dark | Light & Heatmap toggle */}
+                        <div className="absolute top-3 left-3 z-[1000] flex items-center gap-2">
+                          <div className="bg-[#141416] border border-[#26262A] rounded-[8px] p-0.5 flex text-[13px]">
+                            <button
+                              type="button"
+                              onClick={() => setMapLayer('dark')}
+                              className={`px-3 py-1 rounded-[6px] font-medium transition-colors ${
+                                mapLayer === 'dark' ? 'bg-[#1A1A1D] text-white' : 'text-[#8B8B94] hover:text-white'
+                              }`}
+                            >
+                              Dark
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setMapLayer('light')}
+                              className={`px-3 py-1 rounded-[6px] font-medium transition-colors ${
+                                mapLayer === 'light' ? 'bg-[#1A1A1D] text-white' : 'text-[#8B8B94] hover:text-white'
+                              }`}
+                            >
+                              Light
+                            </button>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => setHeatmapEnabled((prev) => !prev)}
+                            className={`h-8 px-3 rounded-[8px] border text-[13px] font-medium transition-colors ${
+                              heatmapEnabled
+                                ? 'bg-[#1A1A1D] border-[#8B8B94] text-white'
+                                : 'bg-[#141416] border-[#26262A] text-[#8B8B94] hover:text-white'
+                            }`}
+                          >
+                            Heatmap
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* INCIDENTS PANEL (Right) */}
+                      <div className="border border-[#26262A] bg-[#141416] rounded-[10px] flex flex-col min-h-0 overflow-hidden relative">
+                        {/* Header */}
+                        <div className="p-3.5 border-b border-[#26262A] flex items-center justify-between shrink-0 text-[13px]">
+                          <div className="flex items-center gap-3">
+                            <span className="text-[15px] font-semibold text-white">Incidents</span>
+                            <span className="text-[#8B8B94] tabular-nums">
+                              {dashboardIncidents.length}
+                            </span>
+                            <label className="flex items-center gap-1.5 text-[11px] text-[#8B8B94] cursor-pointer ml-1">
+                              <input
+                                type="checkbox"
+                                checked={showResolvedInList}
+                                onChange={(e) => setShowResolvedInList(e.target.checked)}
+                                className="rounded border-[#26262A] bg-[#0E0E10] text-white focus:ring-0"
+                              />
+                              <span>Show resolved</span>
+                            </label>
+                          </div>
+
+                          <select
+                            value={sortBy}
+                            onChange={(e) => setSortBy(e.target.value as any)}
+                            className="bg-[#0E0E10] border border-[#26262A] rounded-[8px] px-2.5 py-1 text-[13px] text-[#F2F2F3] focus:outline-none"
+                          >
+                            <option value="criticality">Highest criticality</option>
+                            <option value="newest">Newest</option>
+                          </select>
+                        </div>
+
+                        {/* List: scrolls inside panel only */}
+                        <div className="flex-1 overflow-y-auto divide-y divide-[#26262A]">
+                          {dashboardIncidents.length === 0 ? (
+                            <div className="p-8 text-center text-[13px] text-[#8B8B94]">
+                              No active incidents in queue.
+                            </div>
+                          ) : (
+                            dashboardIncidents.map((need) => {
+                              const isSelected = selectedNeed?.id === need.id;
+                              const score = need.criticalityScore || 0;
+                              const isCritical = score >= 85;
+                              const dotColor = isCritical ? '#E5383B' : score >= 65 ? '#E8A317' : '#8B8B94';
+
+                              return (
+                                <div
+                                  key={need.id}
+                                  onClick={() => setSelectedNeed(need)}
+                                  className={`min-h-[68px] px-4 py-3 cursor-pointer transition-colors ${
+                                    isSelected
+                                      ? 'bg-[#1A1A1D] border-l-2 border-white'
+                                      : 'hover:bg-[#1A1A1D]'
+                                  }`}
+                                >
+                                  {/* Line 1: severity dot 8px | "Infrastructure · Delhi (Chandni Chowk)" 15px medium | right: score 15px semibold */}
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2 overflow-hidden">
+                                      <span
+                                        className="w-2 h-2 rounded-full shrink-0"
+                                        style={{ backgroundColor: dotColor }}
+                                      />
+                                      <span className="text-[15px] font-medium text-white truncate capitalize">
+                                        {need.crisisType} · {need.location.name}
+                                      </span>
+                                    </div>
+                                    <span
+                                      className={`text-[15px] font-semibold tabular-nums shrink-0 ${
+                                        isCritical ? 'text-[#E5383B]' : 'text-[#F2F2F3]'
+                                      }`}
+                                    >
+                                      {score.toFixed(0)}
+                                    </span>
+                                  </div>
+
+                                  {/* Line 2: one-line description 13px secondary | right: "1h ago" 13px secondary */}
+                                  <div className="flex items-center justify-between gap-4 mt-1 text-[13px] text-[#8B8B94]">
+                                    <span className="truncate">
+                                      {need.urgencyReasoning || 'Citizen distress call recorded.'}
+                                    </span>
+                                    <span className="shrink-0 tabular-nums">
+                                      {formatShortTimeAgo(need.reportedAt)}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+
+                        {/* INCIDENT DRAWER: 440px right slide-over (overlays panel, 150ms slide, Esc closes, scrim none) */}
+                        {selectedNeed && (
+                          <div className="absolute inset-y-0 right-0 w-[440px] bg-[#141416] border-l border-[#26262A] shadow-2xl z-20 flex flex-col min-h-0 transition-transform duration-150">
+                            {/* Drawer Header */}
+                            <div className="p-4 border-b border-[#26262A] flex items-center justify-between shrink-0">
+                              <h3 className="text-[15px] font-semibold text-white capitalize truncate pr-2">
+                                {selectedNeed.crisisType} · {selectedNeed.location.name}
+                              </h3>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedNeed(null)}
+                                className="p-1 text-[#8B8B94] hover:text-white rounded-[6px]"
+                              >
+                                <XMarkIcon className="w-5 h-5" />
+                              </button>
+                            </div>
+
+                            {/* Drawer Content */}
+                            <div className="flex-1 overflow-y-auto p-4 space-y-4 text-[13px]">
+                              {/* Chips row (status, "Score 95") */}
+                              <div className="flex items-center gap-2">
+                                <span className={`px-2.5 py-1 rounded-[6px] font-medium text-[13px] ${
+                                  selectedNeed.status === 'RESOLVED'
+                                    ? 'bg-[#2E9E6B]/15 text-[#2E9E6B]'
+                                    : selectedNeed.status === 'VERIFIED'
+                                    ? 'bg-[#E8A317]/15 text-[#E8A317]'
+                                    : (selectedNeed.status === 'EN_ROUTE' || selectedNeed.status === 'ON_SCENE')
+                                    ? 'bg-[#4C8DFF]/15 text-[#4C8DFF]'
+                                    : selectedNeed.status === 'FALSE_ALARM'
+                                    ? 'text-[#8B8B94] line-through'
+                                    : 'bg-[#26262A] text-[#8B8B94]'
+                                }`}>
+                                  {selectedNeed.status.replace(/_/g, ' ')}
+                                </span>
+
+                                <span className="px-2.5 py-1 rounded-[6px] bg-[#26262A] text-white font-semibold tabular-nums text-[13px]">
+                                  Score {selectedNeed.criticalityScore?.toFixed(0) || 75}
+                                </span>
+                              </div>
+
+                              {/* AI Confidence & Reasoning */}
+                              <div className="p-3 bg-[#0E0E10] border border-[#26262A] rounded-[8px] space-y-1">
+                                <div className="flex items-center justify-between text-[#8B8B94] text-[11px]">
+                                  <span>AI Analysis</span>
+                                  <span className="tabular-nums">
+                                    {(selectedNeed.confidenceScore ? selectedNeed.confidenceScore * 100 : 88).toFixed(0)}% confidence
+                                  </span>
+                                </div>
+                                <p className="text-white text-[13px] leading-relaxed">
+                                  {selectedNeed.urgencyReasoning}
+                                </p>
+                              </div>
+
+                              {/* Description */}
+                              <div>
+                                <span className="text-[#8B8B94] text-[11px] block mb-1">Description</span>
+                                <p className="text-[#F2F2F3] text-[13px] leading-relaxed">
+                                  {selectedNeed.urgencyReasoning || 'No additional narrative text provided.'}
+                                </p>
+                              </div>
+
+                              {/* Meta List */}
+                              <div className="border border-[#26262A] rounded-[8px] p-3 space-y-2 bg-[#0E0E10] text-[13px]">
+                                <div className="flex justify-between">
+                                  <span className="text-[#8B8B94]">Ticket</span>
+                                  <span className="text-white font-semibold tabular-nums">
+                                    {selectedNeed.ticketCode || selectedNeed.id.slice(0, 8)}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-[#8B8B94]">Reported time</span>
+                                  <span className="text-white tabular-nums">
+                                    {new Date(selectedNeed.reportedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-[#8B8B94]">Est. affected</span>
+                                  <span className="text-white tabular-nums">
+                                    ~{selectedNeed.estimatedScale || 30} people
+                                  </span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-[#8B8B94]">Reports merged</span>
+                                  <span className="text-white tabular-nums">
+                                    {selectedNeed.reportCount || 1}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Photo / Audio if present */}
+                              {selectedNeed.mediaUrls && selectedNeed.mediaUrls.length > 0 && (
+                                <div>
+                                  <span className="text-[#8B8B94] text-[11px] block mb-1.5">Attached media</span>
+                                  <div className="flex gap-2">
+                                    {selectedNeed.mediaUrls.map((url, i) => (
+                                      <img
+                                        key={i}
+                                        src={url}
+                                        alt="Incident"
+                                        className="w-20 h-20 rounded-[8px] object-cover border border-[#26262A]"
+                                      />
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Assigned Responder Card + Allocated Supplies */}
+                              {selectedNeed.enRouteVolunteers && selectedNeed.enRouteVolunteers.length > 0 && (
+                                <div className="border border-[#26262A] rounded-[8px] p-3 bg-[#0E0E10] space-y-2">
+                                  <span className="text-[#8B8B94] text-[11px] block">Assigned responder</span>
+                                  {selectedNeed.enRouteVolunteers.map((v) => (
+                                    <div key={v.id} className="flex items-center justify-between">
+                                      <div>
+                                        <p className="font-semibold text-white">{v.name}</p>
+                                        <p className="text-[11px] text-[#8B8B94]">{v.ngo || 'Rescue unit'}</p>
+                                      </div>
+                                      {v.etaMinutes && (
+                                        <span className="text-[#4C8DFF] tabular-nums font-medium">
+                                          ETA {v.etaMinutes}m
+                                        </span>
+                                      )}
+                                    </div>
+                                  ))}
+                                  {selectedNeed.allocatedSupplies && (
+                                    <div className="pt-2 border-t border-[#26262A] text-[11px] text-[#8B8B94]">
+                                      <span>Supplies allocated: </span>
+                                      <span className="text-white">{selectedNeed.allocatedSupplies.join(', ')}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Updates timeline */}
+                              <div>
+                                <span className="text-[#8B8B94] text-[11px] block mb-2">Updates</span>
+                                <div className="space-y-2 border-l border-[#26262A] pl-3 ml-1">
+                                  {(selectedNeed.timeline || [
+                                    { timestamp: selectedNeed.reportedAt, description: 'Signal ingested into crisis registry.' }
+                                  ]).map((evt, idx) => (
+                                    <div key={idx} className="space-y-0.5">
+                                      <span className="text-[11px] text-[#8B8B94] tabular-nums block">
+                                        {new Date(evt.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                      </span>
+                                      <span className="text-white text-[13px]">{evt.description}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Sticky Footer Buttons (depend strictly on status) */}
+                            <div className="p-4 border-t border-[#26262A] bg-[#141416] shrink-0">
+                              {selectedNeed.status === 'UNVERIFIED' && (
+                                <div className="flex gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleVerify(selectedNeed.id, 'VERIFIED')}
+                                    className="flex-1 h-10 bg-white hover:bg-zinc-200 text-black font-semibold rounded-[8px] text-[13px] transition-colors"
+                                  >
+                                    Verify incident
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleVerify(selectedNeed.id, 'REJECTED_SPAM')}
+                                    className="h-10 px-4 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-[#8B8B94] hover:text-white rounded-[8px] text-[13px] transition-colors"
+                                  >
+                                    Reject as false alarm
+                                  </button>
+                                </div>
+                              )}
+
+                              {selectedNeed.status === 'VERIFIED' && (
+                                <div className="flex gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDispatch(selectedNeed.id)}
+                                    disabled={loadingDispatch}
+                                    className="flex-1 h-10 bg-white hover:bg-zinc-200 text-black font-semibold rounded-[8px] text-[13px] transition-colors disabled:opacity-50"
+                                  >
+                                    {loadingDispatch ? 'Dispatching...' : 'Dispatch automatically'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => navigate('/admin/volunteers')}
+                                    className="h-10 px-4 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-white rounded-[8px] text-[13px] transition-colors"
+                                  >
+                                    Choose volunteer
+                                  </button>
+                                </div>
+                              )}
+
+                              {(selectedNeed.status === 'EN_ROUTE' || selectedNeed.status === 'ON_SCENE' || selectedNeed.status === 'DISPATCHED') && (
+                                <div className="flex gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => navigate('/admin/volunteers')}
+                                    className="flex-1 h-10 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-white rounded-[8px] text-[13px] transition-colors"
+                                  >
+                                    View responder
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleResolve(selectedNeed.id)}
+                                    className="h-10 px-4 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-white rounded-[8px] text-[13px] transition-colors"
+                                  >
+                                    Mark resolved
+                                  </button>
+                                </div>
+                              )}
+
+                              {selectedNeed.status === 'RESOLVED' && (
+                                <div className="text-center text-[13px] text-[#2E9E6B] font-medium py-1">
+                                  Incident is resolved. Case closed.
+                                </div>
+                              )}
+
+                              {selectedNeed.status === 'FALSE_ALARM' && (
+                                <div className="text-center text-[13px] text-[#8B8B94] font-medium py-1">
+                                  Incident rejected as false alarm.
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                }
+              />
+
+              {/* Volunteers Page */}
+              <Route path="volunteers" element={<VolunteersPage />} />
+
+              {/* Inventory Page */}
+              <Route path="inventory" element={<AdminInventoryPage />} />
+
+              {/* Analytics Page */}
+              <Route path="analytics" element={<AnalyticsPage />} />
+
+              {/* History Page */}
+              <Route path="history" element={<HistoryPage onSelectIncident={(n) => setSelectedNeed(n)} />} />
+            </Routes>
+          </main>
+        </div>
+      </div>
+
+      {/* SINGLE TOAST NOTIFICATION: 360px wide, bottom-right */}
+      {toast && (
+        <div className="fixed bottom-4 right-4 z-[1500] w-[360px] bg-[#141416] border border-[#E5383B] rounded-[10px] shadow-2xl p-4 text-[13px]">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-[#E5383B]" />
+                <span className="font-semibold text-[#E5383B]">Critical</span>
+                {toast.count > 1 && (
+                  <span className="px-1.5 py-0.2 bg-red-950/60 border border-red-800 text-[#E5383B] text-[10px] font-semibold rounded tabular-nums">
+                    +{toast.count}
+                  </span>
+                )}
+              </div>
+              <p className="text-[15px] font-medium text-white mt-1 capitalize">
+                {toast.need.crisisType} · {toast.need.location.name}
+              </p>
+              <p className="text-[13px] text-[#8B8B94] mt-0.5 tabular-nums">
+                Score {toast.need.criticalityScore?.toFixed(0) || 90}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setToast(null)}
+              className="text-[#8B8B94] hover:text-white p-1"
+            >
+              <XMarkIcon className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="mt-3 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedNeed(toast.need);
+                setToast(null);
+              }}
+              className="h-8 px-4 bg-white hover:bg-zinc-200 text-black text-[13px] font-medium rounded-[8px] transition-colors"
+            >
+              Assign
+            </button>
+          </div>
         </div>
       )}
 
-      <div className="flex-1 flex flex-col p-6 overflow-y-auto custom-scrollbar box-border h-full relative">
-        {toastMessage && (
-          <div className={`absolute bottom-6 right-6 z-[2000] px-4 py-3 rounded shadow-lg animate-slide-in ${toastMessage.includes('⚠️') ? 'bg-amber-500 text-black font-bold border border-amber-400' : 'bg-green-600 text-white'}`}>
-            {toastMessage}
-          </div>
-        )}
-
-        <PredictionAlertBar predictions={predictions} />
-
-        {showBanner && (
-          <div className="flex-shrink-0 mb-6 bg-[#27272A] border border-gray-800 rounded-2xl p-4 flex justify-between items-center relative shadow-[0_8px_30px_rgb(0,0,0,0.08)] overflow-hidden">
-            <div className="flex items-center space-x-6">
-              <h3 className="font-bold text-white tracking-wide ml-2 whitespace-nowrap">🚨 CommunityPulse AI is live and monitoring {new Set(needs.filter(n => n?.location?.name).map(n => n.location.name)).size || 4} cities</h3>
-
-              <div className="hidden lg:flex space-x-8">
-                <div className="flex flex-col items-center">
-                  <span className="text-white text-xl mono font-bold leading-none">{needs.filter(n => n?.status === 'OPEN' || n?.status === 'CRITICAL_VELOCITY').length}</span>
-                  <span className="text-blue-300/80 text-[9px] uppercase tracking-[0.1em] font-bold mt-1">Active Crises</span>
-                </div>
-                <div className="flex flex-col items-center">
-                  <span className="text-emerald-400 text-xl mono font-black leading-none">
-                    {needs.reduce((acc, n) => acc + (n.enRouteVolunteers?.length || (n.status === 'EN_ROUTE' ? 1 : 0)), 0)}
-                  </span>
-                  <span className="text-emerald-300/90 text-[9px] uppercase tracking-[0.1em] font-bold mt-1">🚗 Responders En Route</span>
-                </div>
-                <div className="flex flex-col items-center">
-                  <span className="text-white text-xl mono font-bold leading-none">{(volunteers || []).filter(v => v?.status === 'AVAILABLE').length}</span>
-                  <span className="text-purple-300/80 text-[9px] uppercase tracking-[0.1em] font-bold mt-1">Volunteers Ready</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center space-x-4 mr-10">
+      {/* NEW REPORT MODAL */}
+      {showNewReportModal && (
+        <div className="fixed inset-0 z-[2000] bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-[#141416] border border-[#26262A] rounded-[10px] max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-[#26262A] pb-3">
+              <h3 className="text-[15px] font-semibold text-white">Ingest New Incident Report</h3>
               <button
-                onClick={() => setIsVoiceOpen(true)}
-                className="bg-[#16a34a] hover:bg-[#15803d] text-white px-4 py-1.5 rounded-full text-[12px] font-bold transition-all duration-300 flex items-center h-9 shadow-[0_4px_12px_rgba(22,163,74,0.3)] active:scale-95 z-[100]"
+                type="button"
+                onClick={() => setShowNewReportModal(false)}
+                className="text-[#8B8B94] hover:text-white p-1"
               >
-                <PhoneIcon className="w-4 h-4 mr-2" />
-                Emergency Call
-              </button>
-
-              <button
-                onClick={() => setIsAiChatOpen(!isAiChatOpen)}
-                className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-1.5 rounded-full text-[12px] font-bold transition-all duration-300 flex items-center h-9 shadow-[0_4px_12px_rgba(37,99,235,0.3)] active:scale-95 z-[100]"
-              >
-                <SparklesIcon className="w-4 h-4 mr-2" />
-                Ask AI Assistant
-              </button>
-
-              <button onClick={() => setShowBanner(false)} className="text-white/40 hover:text-white bg-transparent p-1 transition-colors">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                <XMarkIcon className="w-5 h-5" />
               </button>
             </div>
-          </div>
-        )}
 
-        <div className="flex-1 flex flex-col gap-10 box-border pb-20">
-          <div className="flex flex-col xl:flex-row gap-6 items-start">
-            <section className={`w-full xl:w-[450px] ${theme.surface} rounded-[2rem] border ${theme.border} flex flex-col shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden h-[750px]`}>
-              <div className={`p-5 border-b ${theme.border} ${theme.surface} flex justify-between items-center`}>
-                <h2 className={`text-lg font-bold flex items-center ${theme.text}`}>
-                  <ExclamationTriangleIcon className="h-5 w-5 mr-3 text-warning" />
-                  Signals
-                </h2>
-                <div className="flex items-center gap-3">
-                  <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest hidden sm:inline-block">Sort</span>
-                  <select
-                    value={sortBy}
-                    onChange={(e) => setSortBy(e.target.value as 'newest' | 'score_desc' | 'score_asc' | 'city' | 'sla' | 'type')}
-                    className={`${theme.surfaceSoft} border ${theme.border} ${theme.textMuted} text-[0.65rem] rounded-md px-1.5 py-1 cursor-pointer outline-none hover:border-blue-500/50 transition-all focus:border-blue-500/50`}
-                  >
-                    <option value="newest">Newest First</option>
-                    <option value="score_desc">Highest Score</option>
-                    <option value="score_asc">Lowest Score</option>
-                    <option value="city">By City</option>
-                    <option value="sla">SLA Breached</option>
-                    <option value="type">By Type</option>
-                  </select>
-                  <button
-                    onClick={handleClearAll}
-                    className="text-[10px] bg-red-900/20 text-red-400 border border-red-800/40 px-2 py-1 rounded hover:bg-red-900/40 transition-all font-bold"
-                  >
-                    Clear
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex flex-col h-full overflow-hidden">
-                <div className={`p-4 border-b ${theme.border} ${theme.surfaceSoft}`}>
-                  <form onSubmit={handleIngest} className="flex flex-col space-y-3 relative">
-                    {imagePreview && (
-                      <div className="relative w-20 h-20 mb-2 group">
-                        <img src={imagePreview} alt="Preview" className="w-20 h-20 object-cover rounded-md border border-blue-500/50 shadow-lg" />
-                        <button
-                          type="button"
-                          onClick={removeImage}
-                          className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full p-0.5 shadow-md hover:bg-red-500 transition-colors"
-                        >
-                          <XMarkMini className="w-3 h-3" />
-                        </button>
-                      </div>
-                    )}
-                    <div className="relative">
-                      <textarea
-                        value={ingestText}
-                        onChange={e => setIngestText(e.target.value)}
-                        placeholder="Describe what you see — location, how many people, what's needed..."
-                        className={`w-full ${theme.surface} border ${theme.border} rounded-2xl p-3 pb-10 text-xs ${theme.text} focus:outline-none focus:border-blue-500 min-h-[100px] shadow-sm resize-none placeholder-zinc-500 dark:placeholder-zinc-400 ${shake ? 'animate-shake border-red-500' : ''}`}
-                      />
-                      <div className="absolute bottom-2 left-2 flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => fileInputRef.current?.click()}
-                          className={`p-2 rounded-xl border transition-all ${selectedImage ? 'bg-blue-600 border-blue-500 text-white' : `${theme.surfaceSoft} ${theme.border} ${theme.textMuted} hover:bg-white/[0.05] hover:text-white`}`}
-                          title="Attach image for AI analysis"
-                        >
-                          <CameraIcon className="w-4 h-4" />
-                        </button>
-                        <input
-                          type="file"
-                          ref={fileInputRef}
-                          onChange={handleImageChange}
-                          accept="image/*"
-                          className="hidden"
-                        />
-                        {selectedImage && (
-                          <span className="text-[9px] font-bold text-blue-400 bg-blue-500/10 px-2 py-1 rounded border border-blue-500/20 animate-pulse">
-                            📸 Image Ready
-                          </span>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={isRecording ? stopRecording : startRecording}
-                        className={`absolute bottom-2 right-2 p-2 rounded-xl border transition-all ${isRecording ? 'bg-red-600 border-red-500 animate-pulse text-white' : `${theme.surfaceSoft} ${theme.border} ${theme.textMuted} hover:bg-white/[0.05] hover:text-white`}`}
-                      >
-                        {isRecording ? <StopCircleIcon className="w-4 h-4 text-white" /> : <MicrophoneIcon className="w-4 h-4" />}
-                      </button>
-                    </div>
-                    <button
-                      type="submit"
-                      disabled={isIngesting}
-                      className={`w-full font-bold py-3 rounded-2xl text-xs shadow-md transition-all active:scale-[0.98] flex items-center justify-center gap-2 text-white ${isIngesting ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
-                    >
-                      {isIngesting ? (
-                        <>
-                          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                          Processing...
-                        </>
-                      ) : (
-                        <>
-                          <PaperAirplaneIcon className="w-4 h-4" />
-                          Ingest Signal
-                        </>
-                      )}
-                    </button>
-                    <div className="h-5 flex items-center justify-center">
-                      {ingestStatus && (
-                        <p className={`text-[0.75rem] font-bold text-center animate-fade-in ${ingestStatusColor}`}>
-                          {ingestStatus}
-                        </p>
-                      )}
-                    </div>
-                    <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-white/5 overflow-hidden">
-                      {isIngesting && (
-                        <div className="h-full bg-blue-500 animate-progress-indeterminate"></div>
-                      )}
-                      {!isIngesting && ingestStatus && (
-                        <div className={`h-full transition-all duration-500 ${ingestStatusColor.replace('text-', 'bg-')} w-full`}></div>
-                      )}
-                    </div>
-                  </form>
-                </div>
-
-                <div className={`flex-1 overflow-y-auto p-4 flex flex-col gap-4 custom-scrollbar ${theme.surfaceSoft}`} style={{ willChange: 'transform', contain: 'content' }}>
-                  {selectedNeed && (
-                    <button
-                      onClick={handleClearSelection}
-                      className="w-full text-center py-2 bg-blue-500/10 text-blue-400 text-[0.7rem] rounded-lg border border-blue-500/20 hover:bg-blue-500/20 transition-all font-bold mb-1"
-                    >
-                      ✕ Clear Active Selection
-                    </button>
-                  )}
-                  {getSortedNeeds().length === 0 && (
-                    <div className={`flex flex-col items-center justify-center w-full ${theme.textMuted} py-10 italic text-xs`}>
-                      <p>Awaiting signals...</p>
-                    </div>
-                  )}
-                  {getSortedNeeds().map(need => {
-                    const isResolved = need.status === 'RESOLVED';
-                    const crisisStyle = getCrisisStyle(need.crisisType);
-                    return (
-                      <div
-                        key={need.id}
-                        className={`w-full p-4 rounded-2xl border transition-all cursor-pointer hover:translate-x-1 relative shadow-sm ${isResolved ? 'opacity-50 grayscale border-green-200 bg-green-50/30' : selectedNeed?.id === need.id ? 'border-blue-500 ring-2 ring-blue-500/20 bg-blue-50/50' : `${theme.border} ${theme.surface} hover:shadow-md`}`}
-                        onClick={() => {
-                          if (selectedNeed?.id === need.id) {
-                            handleClearSelection();
-                          } else {
-                            setSelectedNeed(need);
-                            setDispatchResult(null);
-                          }
-                        }}
-                        style={{ borderLeft: `4px solid ${isResolved ? '#10B981' : crisisStyle.borderColor}` }}
-                      >
-                        <div className="flex justify-between items-start mb-2">
-                          <span className={`text-[10px] mono ${theme.accent} font-bold uppercase tracking-widest`}>{need?.location?.name || 'Unknown'}</span>
-                          <span className={`text-[9px] ${theme.textMuted} mono ${theme.surfaceSoft} px-1.5 py-0.5 rounded`}>
-                            {need?.reportedAt ? format(need.reportedAt, 'HH:mm') : '--:--'}
-                          </span>
-                        </div>
-                        <div className="mb-2">
-                          <h4 className={`text-[13px] font-bold ${theme.text} capitalize flex items-center flex-wrap gap-1`}>
-                            <span className="text-lg mr-1">{getCrisisStyle(need?.crisisType || 'other').icon}</span>
-                            {need?.crisisType || 'Report'}
-                            {(need as NeedEntity & { isLocal?: boolean }).isLocal && (
-                              <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-500 text-[8px] font-black uppercase rounded border border-amber-500/30 tracking-tighter">
-                                ⚡ Local Parse
-                              </span>
-                            )}
-                            {((need.enRouteVolunteers && need.enRouteVolunteers.length > 0) || need.status === 'EN_ROUTE') && (
-                              <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 text-[8px] font-black uppercase rounded border border-emerald-500/40 animate-pulse flex items-center gap-1">
-                                🚗 {need.enRouteVolunteers?.length || 1} En Route
-                              </span>
-                            )}
-                          </h4>
-                        </div>
-                        <div className="flex justify-between items-center text-[10px] mono">
-                          <span className={`font-bold ${getGoldenHourColor(need?.reportedAt || now)}`}>
-                            {need?.reportedAt ? formatDistanceToNow(need.reportedAt) : '??'} ago
-                          </span>
-                          <span className={`text-xs ${theme.textMuted} font-medium`}>Score: <span className={`${theme.text} font-bold`}>{(need?.criticalityScore || 0).toFixed(0)}</span></span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </section>
-
-            <section className={`flex-1 ${theme.surface} rounded-[2rem] border ${theme.border} overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.04)] flex flex-col relative h-[750px]`}>
-              {/* Map Controls Overlay */}
-              <div className="absolute top-4 left-4 z-[1000] pointer-events-none">
-                <div className="bg-[#1C2128]/90 backdrop-blur-md p-1.5 rounded-2xl border border-gray-700/50 shadow-[0_8px_30px_rgba(0,0,0,0.4)] pointer-events-auto flex items-center gap-4">
-
-                  {/* Left Side: Title & Live Indicator */}
-                  <div className="flex items-center pl-3">
-                    <span className="relative flex h-2 w-2 mr-3">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
-                    </span>
-                    <h2 className="text-sm font-bold text-gray-100 tracking-wide mr-3">MAP</h2>
-                    <span className="text-[9px] font-black text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded border border-red-500/20 uppercase tracking-widest shadow-sm">
-                      Live
-                    </span>
-                  </div>
-
-                  {/* Divider */}
-                  <div className="w-px h-5 bg-gray-700/80"></div>
-
-                  {/* Right Side: Map Layer Toggles */}
-                  <div className="flex bg-[#0B0F14] p-1 rounded-xl border border-gray-800/80 shadow-inner">
-                    <button
-                      onClick={() => setMapLayer('dark')}
-                      className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${mapLayer === 'dark' ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:text-gray-200 hover:bg-white/5'}`}
-                    >
-                      Dark
-                    </button>
-                    <button
-                      onClick={() => setMapLayer('light')}
-                      className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${mapLayer === 'light' ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:text-gray-200 hover:bg-white/5'}`}
-                    >
-                      Light
-                    </button>
-                    <button
-                      onClick={() => setMapLayer('satellite')}
-                      className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${mapLayer === 'satellite' ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:text-gray-200 hover:bg-white/5'}`}
-                    >
-                      Satellite
-                    </button>
-                  </div>
-
-                </div>
-              </div>
-
-              <div className="flex-1 relative">
-                <MapContainer center={center} zoom={5} style={mapContainerStyle} zoomControl={false} scrollWheelZoom={true} attributionControl={false} preferCanvas={true}>
-                  <ChangeView center={selectedNeed ? [selectedNeed.location.lat, selectedNeed.location.lng] : center} zoom={selectedNeed ? 14 : 5} />
-                  <MapEventListener center={center} zoom={5} />
-                  {mapLayer === 'dark' && (
-                    <TileLayer className="map-tiles-dark" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' />
-                  )}
-                  {mapLayer === 'light' && (
-                    <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' />
-                  )}
-                  {mapLayer === 'satellite' && (
-                    <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" attribution='Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community' />
-                  )}
-                  <HeatmapOverlay data={heatmapData} />
-                  
-                  {/* Highlight Circle for Selected Need */}
-                  {selectedNeed && selectedNeed.location?.lat && selectedNeed.location?.lng && (
-                    <AdaptiveCircle 
-                      need={selectedNeed} 
-                      isSelected={true} 
-                    />
-                  )}
-
-                  {needs.filter(n => n.status !== 'RESOLVED' && n.location?.lat && n.location?.lng).map(need => (
-                    <AdaptiveCircle 
-                      key={need.id}
-                      need={need} 
-                      isSelected={selectedNeed?.id === need.id}
-                      onClick={() => setSelectedNeed(need)}
-                    />
-                  ))}
-                </MapContainer>
-                
-                {/* Custom Map Controls (Bottom Right) */}
-                <div className="absolute bottom-6 right-6 z-[1000] flex flex-col gap-3">
-                  <button 
-                    onClick={() => {
-                      // We need a way to trigger map zoom from outside MapContainer or via a component inside
-                      // For now, we'll use a window event or just implement it inside a component
-                      window.dispatchEvent(new CustomEvent('map-zoom-in'));
-                    }}
-                    className="w-12 h-12 bg-[#1C2128]/90 backdrop-blur-md rounded-2xl border border-gray-700/50 flex items-center justify-center text-white hover:bg-gray-800 transition-all shadow-xl active:scale-95"
-                    title="Zoom In"
-                  >
-                    <span className="text-2xl font-light">+</span>
-                  </button>
-                  <button 
-                    onClick={() => {
-                      window.dispatchEvent(new CustomEvent('map-zoom-out'));
-                    }}
-                    className="w-12 h-12 bg-[#1C2128]/90 backdrop-blur-md rounded-2xl border border-gray-700/50 flex items-center justify-center text-white hover:bg-gray-800 transition-all shadow-xl active:scale-95"
-                    title="Zoom Out"
-                  >
-                    <span className="text-2xl font-light">−</span>
-                  </button>
-                  <button 
-                    onClick={() => {
-                      window.dispatchEvent(new CustomEvent('map-recenter'));
-                    }}
-                    className="w-12 h-12 bg-[#1C2128]/90 backdrop-blur-md rounded-2xl border border-gray-700/50 flex items-center justify-center text-white hover:bg-gray-800 transition-all shadow-xl active:scale-95"
-                    title="Recenter"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-            </section>
-          </div>
-
-          <section className={`${theme.surface} rounded-[2rem] border ${theme.border} overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.04)] flex flex-col`}>
-            <div className={`p-5 border-b ${theme.border} ${theme.surface}`}>
-              <h2 className={`text-xl font-bold flex items-center ${theme.text}`}>
-                <PaperAirplaneIcon className="h-6 w-6 mr-3 text-indigo-500" />
-                Dispatch & Coordination Center
-              </h2>
-            </div>
-
-            <div className="p-8">
-              {!selectedNeed ? (
-                <div className={`h-[300px] flex flex-col items-center justify-center text-center p-6 ${theme.surfaceSoft} rounded-[2rem] border border-dashed ${theme.border} animate-fade-in`}>
-                  <div className="w-20 h-20 rounded-full bg-indigo-900/20 border border-indigo-500/20 flex items-center justify-center mb-6 text-indigo-400">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
-                    </svg>
-                  </div>
-                  <h3 className={`font-bold text-xl ${theme.text} mb-2`}>Ready for Intelligent Dispatch</h3>
-                  <p className={`${theme.textMuted} max-w-[360px] leading-relaxed`}>Select any crisis report from the signals panel or map to activate AI-powered volunteer matching.</p>
-                </div>
-              ) : (
-                <div className="flex flex-col xl:flex-row gap-10 animate-fade-in">
-                  <div className="flex-1 space-y-8">
-                    <div className={`${theme.surfaceSoft} p-8 rounded-2xl border ${theme.border} shadow-sm relative`}>
-                      <div className="flex justify-between items-start mb-6">
-                        <div>
-                          <h3 className={`text-xs font-bold ${theme.accent} uppercase tracking-[0.2em] mb-2`}>Selected Incident</h3>
-                          <p className={`text-3xl font-bold ${theme.text} tracking-tight`}>{selectedNeed?.location?.name || 'Emergency Site'}</p>
-                        </div>
-                        <div className={`px-4 py-2 rounded-xl text-xl font-bold shadow-lg ${getScoreColor(selectedNeed?.criticalityScore || 0)}`}>
-                          {(selectedNeed?.criticalityScore || 0).toFixed(0)} <span className="text-xs opacity-60">SCORE</span>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-6">
-                        <div className={`${theme.surface} border ${theme.border} rounded-xl p-4 shadow-sm transition-all duration-300`}>
-                          <p className={`text-[10px] uppercase font-bold ${theme.textMuted} mb-1`}>Crisis Type</p>
-                          <p className={`${theme.text} font-bold capitalize`}>{selectedNeed?.crisisType || 'General'}</p>
-                        </div>
-                        <div className={`${theme.surface} border ${theme.border} rounded-xl p-4 shadow-sm transition-all duration-300`}>
-                          <p className={`text-[10px] uppercase font-bold ${theme.textMuted} mb-1`}>Status</p>
-                          <p className={`font-bold ${selectedNeed?.status === 'EN_ROUTE' ? 'text-emerald-400 animate-pulse' : 'text-indigo-400'}`}>
-                            {selectedNeed?.status === 'EN_ROUTE' ? '🚗 EN ROUTE' : (selectedNeed?.status || 'OPEN')}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* En Route Responders Live Panel */}
-                      {selectedNeed?.enRouteVolunteers && selectedNeed.enRouteVolunteers.length > 0 && (
-                        <div className="mt-4 bg-emerald-950/40 border border-emerald-500/40 rounded-2xl p-4 space-y-2">
-                          <div className="flex items-center justify-between text-xs font-bold text-emerald-400">
-                            <span className="flex items-center gap-1.5 uppercase tracking-wider">
-                              🚗 {selectedNeed.enRouteVolunteers.length} Responder(s) En Route
-                            </span>
-                            <span className="text-[10px] bg-emerald-500/20 px-2 py-0.5 rounded text-emerald-300 border border-emerald-500/30">
-                              DISPATCH ACTIVE
-                            </span>
-                          </div>
-                          <div className="space-y-1.5">
-                            {selectedNeed.enRouteVolunteers.map((resp, i) => (
-                              <div key={i} className="flex justify-between items-center bg-[#0d1117] p-2.5 rounded-xl border border-emerald-500/20 text-xs">
-                                <div>
-                                  <div className="font-bold text-white">{resp.name}</div>
-                                  <div className="text-[11px] text-gray-400 font-medium">
-                                    {resp.ngo || 'Independent'} {resp.phone ? `• ${resp.phone}` : ''}
-                                  </div>
-                                </div>
-                                <span className="text-emerald-400 font-bold text-[10px] uppercase bg-emerald-500/10 px-2 py-0.5 rounded">
-                                  En Route
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="mt-8 flex gap-4">
-                        <button
-                          onClick={() => handleDispatch(selectedNeed.id)}
-                          disabled={loadingDispatch || !isOnline || selectedNeed.status === 'RESOLVED'}
-                          className="flex-1 py-4 px-6 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-800/50 disabled:cursor-not-allowed rounded-xl font-bold text-white transition-all shadow-xl active:scale-[0.98] flex justify-center items-center text-base"
-                        >
-                          {loadingDispatch ? (
-                            <span className="flex items-center"><span className="animate-spin h-5 w-5 border-2 border-white rounded-full border-t-transparent mr-3"></span> Negotiating with AI...</span>
-                          ) : (
-                            selectedNeed.status === 'RESOLVED' ? 'Resolution Complete ✅' : 'Trigger AI Dispatch 🚀'
-                          )}
-                        </button>
-
-                        {selectedNeed.status !== 'RESOLVED' && (
-                          <button
-                            onClick={() => handleResolve(selectedNeed.id)}
-                            className="px-6 py-4 bg-green-900/30 text-green-400 border border-green-800/50 rounded-xl hover:bg-green-600/20 transition-all font-bold text-sm flex items-center"
-                            title="Mark as Resolved"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
-                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                            </svg>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex-1 space-y-6">
-                    {dispatchResult ? (
-                      <div className="space-y-6 animate-in slide-in-from-right-10 duration-700">
-                        <div className="bg-gradient-to-br from-[#10B981]/10 to-[#3B82F6]/10 p-8 rounded-2xl border border-green-500/20 shadow-sm relative overflow-hidden">
-                          <div className="absolute top-0 right-0 p-4">
-                            <span className="bg-green-500 text-white text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-widest shadow-lg">Optimized Match</span>
-                          </div>
-                          <h4 className={`text-xs font-bold ${theme.textMuted} uppercase tracking-widest mb-4`}>Assigned Resource</h4>
-                          <div className="flex justify-between items-center mb-6">
-                            <span className={`text-4xl font-bold ${theme.text} tracking-tight`}>{dispatchResult.volunteer.name}</span>
-                          </div>
-                          <div className={`${theme.surface} p-6 rounded-xl border ${theme.border} relative shadow-sm mt-4`}>
-                            <p className={`text-sm ${theme.text} italic font-mono leading-relaxed`}>"{dispatchResult.dispatchMessage}"</p>
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className={`h-full flex flex-col items-center justify-center text-center p-8 ${theme.surfaceSoft} rounded-[2rem] border ${theme.border} italic ${theme.textMuted}`}>
-                        <p>Awaiting AI Match calculation...</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          </section>
-        </div>
-      </div>
-    </div>
-  );
-
-  const getPageTitle = () => {
-    if (location.pathname === '/') return 'Live Dashboard';
-    if (location.pathname === '/volunteers') return 'Volunteers';
-    if (location.pathname === '/analytics') return 'Analytics';
-    if (location.pathname === '/history') return 'Crisis History';
-    return '';
-  };
-
-  const mainLayout = (
-    <div className={`flex h-screen w-screen overflow-hidden ${theme.bg} ${theme.text} font-sans transition-all duration-300`}>
-      <aside
-        className={`fixed left-4 top-4 bottom-4 z-[2000] flex flex-col transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${isSidebarCollapsed ? 'w-[72px]' : 'w-[260px]'}
-          } bg-[#0D0F14]/80 backdrop-blur-xl border border-white/10 rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.3)] overflow-visible group`}
-      >
-        <button
-          onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-          className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-12 bg-blue-600 border border-blue-400/30 rounded-full flex items-center justify-center text-white shadow-lg hover:bg-blue-500 transition-all z-[2100] active:scale-90 opacity-0 group-hover:opacity-100"
-          title={isSidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
-        >
-          <ChevronLeftIcon className={`w-3.5 h-3.5 transition-transform duration-500 ${isSidebarCollapsed ? 'rotate-180' : ''}`} />
-        </button>
-
-        <div className={`p-8 mb-4 flex items-center ${isSidebarCollapsed ? 'justify-center' : 'space-x-4'}`}>
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-red-600 to-red-700 flex items-center justify-center shadow-lg shadow-red-900/20 flex-shrink-0">
-            <BoltIcon className="w-6 h-6 text-white" />
-          </div>
-          {!isSidebarCollapsed && (
-            <div className="flex flex-col">
-              <span className="font-black text-lg tracking-tight text-white leading-none">TONIC</span>
-              <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest mt-1">Command Center</span>
-            </div>
-          )}
-        </div>
-
-        <nav className="flex-1 px-4 space-y-2 overflow-y-auto custom-scrollbar overflow-x-hidden mt-4">
-          {navItems.map(item => {
-            const isActive = location.pathname === item.path;
-            return (
-              <div
-                key={item.path}
-                onClick={() => navigate(item.path)}
-                className={`relative group/item cursor-pointer flex items-center transition-all duration-300 ease-out rounded-xl ${isSidebarCollapsed ? 'justify-center h-12 w-12 mx-auto' : 'px-4 py-3 gap-4 h-12'
-                  } ${isActive
-                    ? 'bg-blue-600/10 text-blue-400 border border-blue-500/20 shadow-[0_0_15px_rgba(37,99,235,0.1)]'
-                    : 'text-gray-400 hover:bg-white/5 hover:text-gray-100 border border-transparent'
-                  }`}
-              >
-                {isActive && (
-                  <div className="absolute left-0 top-1/4 bottom-1/4 w-1 bg-blue-500 rounded-r-full shadow-[0_0_10px_rgba(59,130,246,0.8)]" />
-                )}
-
-                <span className={`flex-shrink-0 transition-transform duration-300 ${isActive ? 'scale-110 text-blue-400' : 'group-hover/item:scale-110 group-hover/item:-rotate-3 text-gray-400 group-hover/item:text-gray-200'}`}>
-                  {item.icon}
-                </span>
-                {!isSidebarCollapsed && (
-                  <span className={`font-bold text-sm tracking-wide transition-all duration-300 ${isActive ? 'text-white' : 'text-inherit'}`}>
-                    {item.label}
-                  </span>
-                )}
-
-                {isSidebarCollapsed && (
-                  <div className="absolute left-full ml-4 px-3 py-2 bg-[#0B0F14]/90 backdrop-blur-md text-white text-[11px] font-bold rounded-xl border border-white/10 shadow-2xl opacity-0 group-hover/item:opacity-100 pointer-events-none transition-all translate-x-[-10px] group-hover/item:translate-x-0 z-[7000] whitespace-nowrap">
-                    {item.label}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </nav>
-
-        <div className={`p-6 border-t border-white/5 mt-auto ${isSidebarCollapsed ? 'items-center' : ''}`}>
-          {!isSidebarCollapsed && (
-            <div className="mb-4 px-2 space-y-2">
-              <div className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400 px-1 mb-1">
-                3 Dedicated Portals
-              </div>
-              <button
-                onClick={() => window.open('/report', '_blank')}
-                className="w-full py-2 px-2.5 bg-rose-600/20 text-rose-300 border border-rose-500/30 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-600/30 transition-all flex items-center justify-between group shadow-sm"
-              >
-                <span>📢 Citizen SOS</span>
-                <span className="text-rose-400 group-hover:translate-x-0.5 transition-transform">→</span>
-              </button>
-              <button
-                onClick={() => window.open('/volunteer', '_blank')}
-                className="w-full py-2 px-2.5 bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-600/30 transition-all flex items-center justify-between group shadow-sm"
-              >
-                <span>📱 Volunteer Field</span>
-                <span className="text-indigo-400 group-hover:translate-x-0.5 transition-transform">→</span>
-              </button>
-              <div
-                className="w-full py-2 px-2.5 bg-blue-600/30 text-blue-200 border border-blue-500/40 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-between shadow-sm"
-              >
-                <span>🖥️ Admin Command</span>
-                <span className="w-2 h-2 rounded-full bg-blue-400 animate-ping"></span>
-              </div>
-            </div>
-          )}
-          {!isSidebarCollapsed && (
-            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.2em] mb-6 px-2">Global Impact</p>
-          )}
-          <div className={`flex gap-3 ${isSidebarCollapsed ? 'flex-col items-center' : 'flex-wrap px-2'}`}>
-            {[
-              { id: 1, color: 'bg-[#E5243B]', name: 'No Poverty' },
-              { id: 3, color: 'bg-[#4C9F38]', name: 'Health' },
-              { id: 11, color: 'bg-[#FD9D24]', name: 'Cities' },
-              { id: 13, color: 'bg-[#3F7E44]', name: 'Climate' }
-            ].map(sdg => (
-              <div
-                key={sdg.id}
-                className={`w-8 h-8 rounded-lg ${sdg.color} flex items-center justify-center text-white font-black text-[10px] shadow-lg hover:scale-110 transition-all cursor-default relative group/sdg`}
-              >
-                {sdg.id}
-                <div className={`absolute ${isSidebarCollapsed ? 'left-full ml-4' : 'bottom-full left-1/2 -translate-x-1/2 mb-3'} px-3 py-2 bg-[#0B0F14]/90 backdrop-blur-md text-white text-[10px] font-bold rounded-xl border border-white/10 shadow-2xl opacity-0 group-hover/sdg:opacity-100 pointer-events-none transition-all z-[3000] whitespace-nowrap scale-90 group-hover/sdg:scale-100 origin-bottom`}>
-                  {sdg.name}
-                  {!isSidebarCollapsed && (
-                    <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#0B0F14]/90" />
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </aside>
-
-      <div className={`flex-1 flex flex-col h-full ${theme.bg} overflow-hidden relative transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${isSidebarCollapsed ? 'pl-[104px]' : 'pl-[292px]'} pr-4 py-4`}>
-        <div className={`flex-1 flex flex-col overflow-hidden ${theme.surface} border ${theme.border} rounded-[2.5rem] shadow-[0_8px_30px_rgb(0,0,0,0.1)] relative`}>
-          <div className={`h-[64px] flex-shrink-0 ${theme.surface} border-b ${theme.border} px-8 flex justify-between items-center z-50`}>
-            <div className="flex items-center space-x-4">
-              <h2 className={`font-bold text-lg tracking-tight ${theme.text}`}>{getPageTitle()}</h2>
-              <div className={`flex items-center gap-1.5 ml-4 ${theme.surfaceSoft} p-1 rounded-full border ${theme.border}`}>
-                <button
-                  onClick={() => setBgTheme('white')}
-                  className={`w-3.5 h-3.5 rounded-full bg-white border transition-all hover:scale-110 ${bgTheme === 'white' ? 'border-gray-500 ring-2 ring-offset-1 ring-gray-400' : 'border-gray-300'}`}
-                  title="Pure White"
-                />
-                <button
-                  onClick={() => setBgTheme('black')}
-                  className={`w-3.5 h-3.5 rounded-full bg-black border transition-all hover:scale-110 ${bgTheme === 'black' ? 'border-gray-500 ring-2 ring-offset-1 ring-gray-400' : 'border-gray-300'}`}
-                  title="Pure Black"
-                />
-                <button
-                  onClick={() => setBgTheme('space')}
-                  className={`w-3.5 h-3.5 rounded-full bg-indigo-600 border transition-all hover:scale-110 ${bgTheme === 'space' ? 'border-indigo-400 ring-2 ring-offset-1 ring-indigo-500 shadow-[0_0_10px_rgba(79,70,229,0.5)]' : 'border-indigo-900'}`}
-                  title="NASA Space Mode"
+            <form onSubmit={handleCreateReport} className="space-y-4 text-[13px]">
+              <div>
+                <label className="block text-[#8B8B94] font-medium mb-1">
+                  Incident Signal Text
+                </label>
+                <textarea
+                  value={newReportText}
+                  onChange={(e) => setNewReportText(e.target.value)}
+                  placeholder="e.g. Flooding reported in Andheri subway, water level 4 feet, 10 vehicles trapped."
+                  rows={4}
+                  className="w-full bg-[#0E0E10] border border-[#26262A] rounded-[8px] p-3 text-white placeholder-[#8B8B94] focus:outline-none focus:border-zinc-500"
                 />
               </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => window.open('/volunteer', '_blank')}
-                className="bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-400 border border-indigo-500/30 px-3 py-1 rounded-full text-[10px] font-bold transition-all flex items-center shadow-lg h-7 gap-1"
-                title="Open Volunteer Field Portal"
-              >
-                <span>📱</span> Volunteer Portal
-              </button>
-              <button
-                onClick={() => setIsCallModalOpen(true)}
-                className="bg-red-600/10 hover:bg-red-600/20 text-red-500 border border-red-500/30 w-8 h-8 rounded-full flex items-center justify-center transition-all shadow-lg group relative"
-                title="Emergency Call"
-              >
-                <div className="absolute inset-0 bg-red-500 rounded-full animate-ping opacity-20 group-hover:opacity-40"></div>
-                <PhoneIcon className="w-4 h-4 z-10" />
-              </button>
 
-              {!isSimulating ? (
-                <button onClick={startSimulation} className="bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-400 border border-indigo-500/30 px-3 py-1 rounded-full text-[10px] font-bold transition-all flex items-center shadow-lg h-7">
-                  <BoltIcon className="w-3 h-3 mr-1" /> Simulate Crisis
-                </button>
-              ) : (
-                <button onClick={stopSimulation} className="bg-red-600/20 hover:bg-red-600/40 text-red-400 border border-red-500/30 px-3 py-1 rounded-full text-[10px] font-bold transition-all flex items-center animate-pulse h-7">
-                  <BoltIcon className="w-3 h-3 mr-1" /> Stop Simulation
-                </button>
-              )}
+              <div>
+                <label className="block text-[#8B8B94] font-medium mb-1">
+                  Attach Photo (Optional)
+                </label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setNewReportImage(e.target.files ? e.target.files[0] : null)}
+                  className="w-full text-[13px] text-[#8B8B94] file:mr-3 file:py-1.5 file:px-3 file:rounded-[6px] file:border-0 file:text-[13px] file:font-medium file:bg-[#26262A] file:text-white hover:file:bg-[#3F3F46]"
+                />
+              </div>
 
-              <div className="flex items-center ml-2">
-                <div
-                  className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center font-black text-[10px] text-white shadow-[0_0_15px_rgba(37,99,235,0.3)] border border-blue-400/30 cursor-pointer hover:scale-105 transition-all"
-                  title="Administrator Profile"
+              <div className="pt-2 flex justify-end gap-2 border-t border-[#26262A]">
+                <button
+                  type="button"
+                  onClick={() => setShowNewReportModal(false)}
+                  className="h-9 px-4 border border-[#26262A] text-[#8B8B94] hover:text-white rounded-[8px]"
                 >
-                  ADMIN
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-hidden">
-            <Routes>
-              <Route path="/" element={dashboardContent} />
-              <Route path="/volunteers" element={<VolunteersPage />} />
-              <Route path="/analytics" element={<AnalyticsPage />} />
-              <Route path="/ai-assistant" element={<AiAssistantPage />} />
-              <Route path="/history" element={<HistoryPage />} />
-            </Routes>
-          </div>
-        </div>
-
-        <div className="fixed top-6 right-6 z-[3000] flex flex-col gap-2 pointer-events-none">
-          {criticalAlerts.map(alert => (
-            <div key={alert.id} className="pointer-events-auto w-[320px] bg-[#1a0a0a] border border-[#EF4444] rounded-xl p-4 shadow-[0_8px_32px_rgba(239,68,68,0.2)] animate-slide-in relative overflow-hidden">
-              <div className="flex items-start justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <BellAlertIcon className="w-4 h-4 text-[#EF4444] animate-pulse" />
-                  <span className="font-bold text-[0.85rem] text-[#EF4444]">Critical Alert</span>
-                </div>
-                <button onClick={() => {
-                  setDismissedAlertIds(prev => [...prev, alert.id]);
-                  setCriticalAlerts(prev => prev.filter(a => a.id !== alert.id));
-                }} className="text-white/40 hover:text-white transition-colors">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingReport}
+                  className="h-9 px-4 bg-white hover:bg-zinc-200 text-black font-semibold rounded-[8px] transition-colors disabled:opacity-50"
+                >
+                  {isSubmittingReport ? 'Ingesting...' : 'Ingest report'}
                 </button>
               </div>
-              <p className="text-[0.75rem] text-[#8B9CB8] mb-3 leading-tight">
-                <span className="text-white font-bold">{alert.location.name}</span> • {alert.crisisType} Crisis<br />
-                Severity Score: {alert.criticalityScore.toFixed(1)}
-              </p>
-              <button
-                onClick={() => {
-                  setSelectedNeed(alert);
-                  setDispatchResult(null);
-                  setDismissedAlertIds(prev => [...prev, alert.id]);
-                  setCriticalAlerts(prev => prev.filter(a => a.id !== alert.id));
-                }}
-                className="w-full py-1.5 border border-[#EF4444] text-[#EF4444] bg-transparent rounded-lg text-[0.75rem] font-bold hover:bg-[#EF4444]/10 transition-all"
-              >
-                Assign Now
-              </button>
-              <div className="absolute bottom-0 left-0 h-[3px] bg-[#EF4444] animate-shrink-width" style={{ animationDuration: '10s' }}></div>
-            </div>
-          ))}
+            </form>
+          </div>
         </div>
-
-        {location.pathname === '/' && (
-          <>
-            <button
-              onClick={() => setIsAiChatOpen(!isAiChatOpen)}
-              className={`fixed right-0 top-1/2 -translate-y-1/2 z-[2000] flex items-center justify-center gap-2 px-4 py-3 rounded-l-full bg-[#3B82F6] hover:bg-[#2563EB] text-white font-bold text-sm shadow-[0_4px_20px_rgba(59,130,246,0.4)] transition-all duration-300 transform ${isAiChatOpen ? 'translate-x-0 w-12' : 'translate-x-0'}`}
-            >
-              {isAiChatOpen ? <span className="text-lg">✕</span> : <><SparklesIcon className="w-5 h-5" /> AI</>}
-            </button>
-
-            <div
-              className={`fixed right-0 top-0 h-full bg-[#27272A] text-white border-l border-black/10 shadow-[-10px_0_30px_rgba(0,0,0,0.1)] transition-all duration-300 ease-in-out z-[1900] flex flex-col overflow-hidden ${isAiChatOpen ? 'translate-x-0 w-[360px]' : 'translate-x-full w-[360px]'}`}
-            >
-              <AiAssistantPage isEmbedded={true} />
-            </div>
-          </>
-        )}
-
-        <VoiceAssistant isOpen={isVoiceOpen} onClose={() => setIsVoiceOpen(false)} apiBase={API_BASE} />
-
-        <VoiceCallModal
-          isOpen={isCallModalOpen}
-          onClose={() => setIsCallModalOpen(false)}
-          onSubmit={(text) => {
-            setIngestText(text);
-            console.log("Transcribed Emergency Call:", text);
-          }}
-        />
-      </div>
-    </div>
-  );
-
-  return (
-    <Routes>
-      <Route path="/report" element={<ReportPage />} />
-      <Route path="/*" element={mainLayout} />
-    </Routes>
+      )}
+    </>
   );
 }

@@ -1,152 +1,202 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import axios from 'axios';
+import { MagnifyingGlassIcon } from '@heroicons/react/24/outline';
+import type { NeedEntity } from '../types';
 
-const TYPE_COLORS: Record<string, string> = {
-  Medical: "#EF4444",
-  Infrastructure: "#F59E0B",
-  Food: "#10B981",
-  Flood: "#3B82F6",
-  Water: "#3B82F6",
-  Fire: "#F97316"
-};
+function formatReportedDate(timestamp: number): string {
+  const d = new Date(timestamp);
+  const now = new Date();
+  const isToday = d.toDateString() === now.toDateString();
+  const timeStr = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (isToday) return `Today ${timeStr}`;
+  const monthStr = d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return `${monthStr}, ${timeStr}`;
+}
 
-export default function HistoryPage() {
-  const [needs, setNeeds] = useState<any[]>([]);
-  const [filter, setFilter] = useState("All");
-  const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(true);
-
-  const handleResolve = async (id: string) => {
-    try {
-      await fetch(`/needs/${id}/resolve`, { method: 'POST' });
-      setNeeds(prev => prev.map(n => n.id === id ? { ...n, status: 'RESOLVED' } : n));
-    } catch (err) {
-      console.error(err);
-    }
-  };
+export default function HistoryPage({ onSelectIncident }: { onSelectIncident?: (incident: NeedEntity) => void }) {
+  const [needs, setNeeds] = useState<NeedEntity[]>([]);
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState<'All' | 'Open' | 'Resolved'>('All');
+  const [page, setPage] = useState(1);
+  const pageSize = 25;
 
   useEffect(() => {
-    fetch('/needs')
-      .then(res => res.json())
-      .then(data => {
-        setNeeds(data);
-        setLoading(false);
-      })
-      .catch(err => console.error(err));
+    axios.get('/needs')
+      .then((res) => setNeeds(res.data || []))
+      .catch((err) => console.error(err));
   }, []);
 
-  const filteredNeeds = (needs || []).filter(n => {
-    const locName = n?.location?.name || "";
-    const cType = n?.crisisType || "";
-    const matchesFilter = filter === "All" || n?.status === filter || n?.crisisType === filter;
-    const matchesSearch = locName.toLowerCase().includes(search.toLowerCase()) || 
-                          cType.toLowerCase().includes(search.toLowerCase());
-    return matchesFilter && matchesSearch;
-  });
+  const filtered = useMemo(() => {
+    return needs.filter((n) => {
+      const q = search.toLowerCase();
+      const locMatch = (n.location?.name || '').toLowerCase().includes(q);
+      const typeMatch = (n.crisisType || '').toLowerCase().includes(q);
+      const ticketMatch = (n.ticketCode || '').toLowerCase().includes(q);
+      const matchesSearch = locMatch || typeMatch || ticketMatch;
+
+      if (!matchesSearch) return false;
+
+      if (filter === 'Open') return n.status !== 'RESOLVED' && n.status !== 'FALSE_ALARM';
+      if (filter === 'Resolved') return n.status === 'RESOLVED';
+      return true;
+    });
+  }, [needs, search, filter]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const startIndex = (currentPage - 1) * pageSize;
+  const paginatedNeeds = filtered.slice(startIndex, startIndex + pageSize);
+
+  const startDisplay = filtered.length > 0 ? startIndex + 1 : 0;
+  const endDisplay = Math.min(startIndex + pageSize, filtered.length);
 
   return (
-    <div className="h-full bg-transparent p-6 overflow-y-auto custom-scrollbar">
-      <div className="flex justify-between items-end mb-8">
-        <div>
-          <h1 className="text-[1.6rem] font-bold text-inherit leading-tight">Response History</h1>
-          <p className="text-[0.8rem] text-gray-400 mt-1">Archived signals and resolution activity log.</p>
-        </div>
-        <div className="flex space-x-4">
-          <input 
+    <div className="w-full max-w-[1600px] mx-auto px-6 xl:px-8 py-6 space-y-4 font-sans text-[#F2F2F3]">
+      {/* Toolbar: one search input + segmented All | Open | Resolved */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="relative flex-1 max-w-md">
+          <MagnifyingGlassIcon className="w-4 h-4 text-[#8B8B94] absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
             type="text"
-            placeholder="Search signals..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-inherit w-64 focus:outline-none focus:border-blue-500/50 transition-all text-sm"
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            placeholder="Search by type or place"
+            className="w-full h-10 bg-[#141416] border border-[#26262A] rounded-[8px] pl-9 pr-3 text-[13px] text-white placeholder-[#8B8B94] focus:outline-none focus:border-zinc-500"
           />
-          <div className="flex bg-white/5 p-1 rounded-lg border border-white/10">
-            {["All", "OPEN", "RESOLVED"].map(f => (
-              <button
-                key={f}
-                onClick={() => setFilter(f)}
-                className={`px-4 py-1 rounded-md text-[0.65rem] font-bold uppercase tracking-wider transition-all ${filter === f ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-400 hover:text-blue-400'}`}
-              >
-                {f}
-              </button>
-            ))}
-          </div>
+        </div>
+
+        {/* Segmented All | Open | Resolved */}
+        <div className="flex h-10 bg-[#141416] border border-[#26262A] rounded-[8px] p-0.5 text-[13px]">
+          {(['All', 'Open', 'Resolved'] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => {
+                setFilter(tab);
+                setPage(1);
+              }}
+              className={`px-4 h-full rounded-[6px] font-medium transition-colors ${
+                filter === tab ? 'bg-[#26262A] text-white' : 'text-[#8B8B94] hover:text-white'
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="bg-[#161B22] border border-gray-800 rounded-2xl overflow-hidden shadow-lg">
-        <table className="w-full text-left">
-          <thead className="bg-[#0D1421] border-b border-gray-800">
-            <tr>
-              <th className="px-6 py-5 text-[0.65rem] font-bold text-gray-400 uppercase tracking-[0.2em]">Signal Type</th>
-              <th className="px-6 py-5 text-[0.65rem] font-bold text-gray-400 uppercase tracking-[0.2em]">Location</th>
-              <th className="px-6 py-5 text-[0.65rem] font-bold text-gray-400 uppercase tracking-[0.2em]">Score</th>
-              <th className="px-6 py-5 text-[0.65rem] font-bold text-gray-400 uppercase tracking-[0.2em]">Est. Scale</th>
-              <th className="px-6 py-5 text-[0.65rem] font-bold text-gray-400 uppercase tracking-[0.2em]">Timestamp</th>
-              <th className="px-6 py-5 text-[0.65rem] font-bold text-gray-400 uppercase tracking-[0.2em]">Status</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-white/5">
-            {loading ? (
-              [...Array(5)].map((_, i) => (
-                <tr key={i} className="animate-pulse">
-                  <td colSpan={6} className="px-6 py-6 bg-white/[0.02] h-16"></td>
-                </tr>
-              ))
-            ) : filteredNeeds.length > 0 ? (
-              filteredNeeds.map((need) => (
-                <tr key={need.id} className={`hover:bg-white/[0.02] transition-colors group ${need.status === 'RESOLVED' ? 'bg-green-500/5' : ''}`}>
-                  <td className="px-6 py-5">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: need.status === 'RESOLVED' ? '#10B981' : (TYPE_COLORS[need.crisisType] || '#8B5CF6') }}></div>
-                      <span className={`text-[0.85rem] font-bold ${need.status === 'RESOLVED' ? 'text-green-400' : 'text-gray-100'}`}>{need.crisisType}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-5">
-                    <div className="flex flex-col">
-                      <span className={`text-[0.85rem] font-medium transition-colors ${need.status === 'RESOLVED' ? 'text-green-300/60' : 'text-gray-300 group-hover:text-blue-400'}`}>📍 {need.location.name}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-5">
-                    <span className={`text-[0.75rem] mono font-bold ${need.status === 'RESOLVED' ? 'text-green-500/40' : need.criticalityScore > 75 ? 'text-red-400' : 'text-green-400'}`}>
-                      {need.criticalityScore.toFixed(1)}
-                    </span>
-                  </td>
-                  <td className="px-6 py-5 text-[0.75rem] text-gray-400 mono font-bold">
-                    ~{need.estimatedScale} <span className="text-[10px] opacity-60">PPL</span>
-                  </td>
-                  <td className="px-6 py-5 text-[0.7rem] text-gray-400 mono">
-                    {new Date(need.reportedAt).toLocaleString()}
-                  </td>
-                  <td className="px-6 py-5">
-                    <div className="flex items-center space-x-4">
-                      <span className={`px-2.5 py-1 rounded-full text-[0.6rem] font-bold uppercase tracking-widest border ${
-                        need.status === 'OPEN' 
-                          ? 'bg-red-500/10 text-red-400 border-red-500/20 shadow-[0_0_15px_rgba(239,68,68,0.1)]' 
-                          : 'bg-green-500/10 text-green-400 border-green-500/20'
-                      }`}>
-                        {need.status}
-                      </span>
-                      
-                      {need.status === 'OPEN' && (
-                        <button 
-                          onClick={() => handleResolve(need.id)}
-                          className="opacity-0 group-hover:opacity-100 transition-all text-[10px] bg-green-600 text-white px-3 py-1 rounded-lg hover:bg-green-500 shadow-lg"
-                        >
-                          Resolve
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={6} className="px-6 py-20 text-center text-gray-500 text-sm animate-fade-in italic">
-                   No archival signals found for this filter.
-                </td>
+      {/* Table full width: Type | Location | Score | Affected | Reported | Status chip */}
+      <div className="border border-[#26262A] rounded-[10px] overflow-hidden bg-[#141416]">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse text-[13px]">
+            <thead>
+              <tr className="h-10 border-b border-[#26262A] text-[#8B8B94] font-normal text-[13px]">
+                <th className="px-4 font-normal">Type</th>
+                <th className="px-4 font-normal">Location</th>
+                <th className="px-4 font-normal">Score</th>
+                <th className="px-4 font-normal">Affected</th>
+                <th className="px-4 font-normal">Reported</th>
+                <th className="px-4 font-normal text-right">Status</th>
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-[#26262A]">
+              {paginatedNeeds.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="p-8 text-center text-[#8B8B94]">
+                    No signals found.
+                  </td>
+                </tr>
+              ) : (
+                paginatedNeeds.map((need) => {
+                  const isResolved = need.status === 'RESOLVED';
+                  const isFalseAlarm = need.status === 'FALSE_ALARM';
+                  const isOpen = !isResolved && !isFalseAlarm;
+                  const score = need.criticalityScore || 0;
+                  const isCritical = score >= 85;
+
+                  return (
+                    <tr
+                      key={need.id}
+                      onClick={() => onSelectIncident?.(need)}
+                      className="h-14 hover:bg-[#1A1A1D] transition-colors cursor-pointer"
+                    >
+                      {/* Type (capitalised "Infrastructure", no colored dot) */}
+                      <td className={`px-4 font-medium capitalize ${isResolved ? 'text-[#8B8B94]' : 'text-white'}`}>
+                        {need.crisisType}
+                      </td>
+
+                      {/* Location (no pin emoji) */}
+                      <td className={`px-4 ${isResolved ? 'text-[#8B8B94]' : 'text-[#F2F2F3]'}`}>
+                        {need.location?.name || 'Unknown Site'}
+                      </td>
+
+                      {/* Score (red only if >=85) */}
+                      <td className={`px-4 font-semibold tabular-nums ${isCritical ? 'text-[#E5383B]' : 'text-[#8B8B94]'}`}>
+                        {score.toFixed(0)}
+                      </td>
+
+                      {/* Affected ("~30 people") */}
+                      <td className="px-4 text-[#8B8B94] tabular-nums">
+                        ~{need.estimatedScale || 30} people
+                      </td>
+
+                      {/* Reported ("Today 3:33 PM" / "Nov 14, 11:08 AM") */}
+                      <td className="px-4 text-[#8B8B94] tabular-nums">
+                        {formatReportedDate(need.reportedAt)}
+                      </td>
+
+                      {/* Status chip (Open amber, Resolved green, Unverified gray, False alarm gray strikethrough) */}
+                      <td className="px-4 text-right">
+                        <span
+                          className={`inline-block px-2.5 py-0.5 rounded-[4px] text-[13px] font-medium ${
+                            isResolved
+                              ? 'bg-[#2E9E6B]/15 text-[#2E9E6B]'
+                              : isFalseAlarm
+                              ? 'text-[#8B8B94] line-through'
+                              : need.status === 'UNVERIFIED'
+                              ? 'bg-[#26262A] text-[#8B8B94]'
+                              : 'bg-[#E8A317]/15 text-[#E8A317]'
+                          }`}
+                        >
+                          {need.status.toLowerCase().replace(/_/g, ' ')}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Footer pagination: "1-25 of 48", Prev / Next ghost buttons */}
+        <div className="h-12 border-t border-[#26262A] px-4 flex items-center justify-between text-[13px] text-[#8B8B94]">
+          <span className="tabular-nums">
+            {startDisplay}-{endDisplay} of {filtered.length}
+          </span>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={currentPage <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              className="h-8 px-3 border border-[#26262A] hover:bg-[#1A1A1D] text-white rounded-[6px] transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+            >
+              Prev
+            </button>
+            <button
+              type="button"
+              disabled={currentPage >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              className="h-8 px-3 border border-[#26262A] hover:bg-[#1A1A1D] text-white rounded-[6px] transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+            >
+              Next
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -119,8 +119,11 @@ app.get('/needs', async (req, res) => {
 app.get('/needs/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    const query = id.toLowerCase();
     const allNeeds = await db.getAllNeeds();
-    const need = allNeeds.find(n => n.id === id);
+    const need = allNeeds.find(
+      n => n.id.toLowerCase() === query || (n.ticketCode && n.ticketCode.toLowerCase() === query)
+    );
     if (!need) return res.status(404).json({ error: 'Need not found' });
     res.json(need);
   } catch (e) {
@@ -374,8 +377,11 @@ app.post('/ingest', upload.single('image'), async (req, res) => {
       embedding = new Array(768).fill(0).map(() => Math.random() * 0.01);
     }
 
+    const ticketCode = `CP-${Math.floor(1000 + Math.random() * 9000)}`;
+
     const newNeed: NeedEntity = {
       id: crypto.randomUUID(),
+      ticketCode,
       location: {
         name: extractedData.location?.name || 'Unknown Location',
         lat: extractedData.location?.lat || 19.0760,
@@ -387,11 +393,17 @@ app.post('/ingest', upload.single('image'), async (req, res) => {
       reportCount: 1,
       criticalityScore: 0,
       status: 'OPEN',
+      verificationStatus: 'PENDING',
+      verificationConfidence: Math.floor(84 + Math.random() * 14),
       reportedAt: Date.now(),
       rawInputs: [rawText],
       embedding,
       originalLanguage: extractedData.originalLanguage,
-      isLocal: (extractedData as any).isLocal || false
+      isLocal: (extractedData as any).isLocal || false,
+      photoUrl: base64Image ? `data:image/jpeg;base64,${base64Image}` : undefined,
+      timeline: [
+        { timestamp: Date.now(), action: 'Distress Signal Transmitted & Logged in Central Command', actorRole: 'CITIZEN' }
+      ]
     };
 
     const processedNeed = await processDeduplication(newNeed);
@@ -478,22 +490,47 @@ app.post('/dispatch', async (req, res) => {
 
     const dispatchMessage = await AIService.generateDispatchMessage(topVolunteer, need);
 
+    const dist = haversineDistance(
+      need.location.lat, need.location.lng,
+      topVolunteer.locationCoords.lat, topVolunteer.locationCoords.lng
+    );
+    const etaMinutes = Math.max(4, Math.round(dist * 2.2));
+
     // Attach volunteer to need as EN_ROUTE
     const responder: EnRouteResponder = {
       id: topVolunteer.id,
       name: topVolunteer.name,
       ngo: topVolunteer.ngo,
       phone: topVolunteer.phone,
-      dispatchedAt: Date.now()
+      dispatchedAt: Date.now(),
+      etaMinutes,
+      missionStatus: 'EN_ROUTE'
     };
 
     const currentList = Array.isArray(need.enRouteVolunteers) ? need.enRouteVolunteers : [];
     const alreadyIn = currentList.some(r => r.id === responder.id);
     const updatedList = alreadyIn ? currentList : [...currentList, responder];
 
+    const allocatedSupplies = [
+      need.crisisType === 'water' ? { supplyId: 'sup-1', name: 'Packaged Drinking Water (20L Cans)', quantity: Math.max(5, need.estimatedScale * 2), unit: 'Cans' } : null,
+      need.crisisType === 'food' ? { supplyId: 'sup-2', name: 'Ready Emergency Rations', quantity: Math.max(10, need.estimatedScale * 3), unit: 'Packs' } : null,
+      need.crisisType === 'medical' ? { supplyId: 'sup-3', name: 'Trauma & Emergency First Aid Kits', quantity: Math.max(2, Math.ceil(need.estimatedScale / 4)), unit: 'Kits' } : null,
+    ].filter(Boolean) as any;
+
+    const timeline = [
+      ...(need.timeline || []),
+      {
+        timestamp: Date.now(),
+        action: `Responder ${topVolunteer.name} (${topVolunteer.ngo || 'Field Unit'}) Dispatched (ETA ~${etaMinutes} mins)`,
+        actorRole: 'ADMIN' as const
+      }
+    ];
+
     const updates: Partial<NeedEntity> = {
       status: 'EN_ROUTE',
       enRouteVolunteers: updatedList,
+      allocatedSupplies,
+      timeline,
       dispatchMessage
     };
 
@@ -526,6 +563,116 @@ app.post('/chat', async (req, res) => {
   } catch (error) {
     console.error('Chat endpoint error:', error);
     res.status(500).json({ error: 'Internal Server Error during chat' });
+  }
+});
+
+
+// Admin Incident Triage & Verification Endpoint
+app.patch('/needs/:id/verify', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { verificationStatus, notes } = req.body; // 'VERIFIED' | 'REJECTED_SPAM'
+
+    const allNeeds = await db.getAllNeeds();
+    const need = allNeeds.find(n => n.id === id);
+    if (!need) return res.status(404).json({ error: 'Need not found' });
+
+    const newStatus = verificationStatus === 'REJECTED_SPAM' ? 'FALSE_ALARM' : 'VERIFIED';
+    const actionDesc = verificationStatus === 'REJECTED_SPAM'
+      ? `Incident flagged as False Alarm / Spam by Command${notes ? `: ${notes}` : ''}`
+      : `Incident verified by Command Officer${notes ? `: ${notes}` : ''}`;
+
+    const timeline = [
+      ...(need.timeline || []),
+      { timestamp: Date.now(), action: actionDesc, actorRole: 'ADMIN' as const }
+    ];
+
+    const updates = {
+      verificationStatus: verificationStatus as any,
+      status: newStatus as any,
+      timeline
+    };
+
+    await db.updateNeed(id, updates);
+    console.log(`🛡️ Incident ${need.ticketCode || need.id} Triage: Status set to ${newStatus}`);
+
+    res.json({ success: true, id, status: newStatus, verificationStatus });
+  } catch (error) {
+    console.error('Verify error:', error);
+    res.status(500).json({ error: 'Failed to update verification status' });
+  }
+});
+
+// Volunteer Field Checkpoint: Arrived On Scene
+app.post('/dispatch/on-scene', async (req, res) => {
+  try {
+    const { needId, volunteerId, volunteerName } = req.body;
+    if (!needId) return res.status(400).json({ error: 'needId required' });
+
+    const allNeeds = await db.getAllNeeds();
+    const need = allNeeds.find(n => n.id === needId);
+    if (!need) return res.status(404).json({ error: 'Need not found' });
+
+    const timeline = [
+      ...(need.timeline || []),
+      {
+        timestamp: Date.now(),
+        action: `Responders arrived on scene at ${need.location.name}. Active triage commenced.`,
+        actorRole: 'VOLUNTEER' as const
+      }
+    ];
+
+    await db.updateNeed(needId, { status: 'ON_SCENE', timeline });
+    console.log(`📍 Field Update: Responders arrived at ${need.location.name} (${need.ticketCode || need.id})`);
+
+    res.json({ success: true, status: 'ON_SCENE' });
+  } catch (error) {
+    console.error('On-scene error:', error);
+    res.status(500).json({ error: 'Failed to mark on-scene' });
+  }
+});
+
+// Volunteer / Admin Resolution with Proof-of-Work
+app.post('/dispatch/resolve', upload.single('proofPhoto'), async (req, res) => {
+  try {
+    const { needId, notes, volunteerName, casualtiesAssisted } = req.body;
+    if (!needId) return res.status(400).json({ error: 'needId required' });
+
+    const allNeeds = await db.getAllNeeds();
+    const need = allNeeds.find(n => n.id === needId);
+    if (!need) return res.status(404).json({ error: 'Need not found' });
+
+    let photoUrl: string | undefined;
+    if (req.file) {
+      photoUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+    }
+
+    const proofOfWork = {
+      photoUrl,
+      notes: notes || 'Mission accomplished. Relief supplies delivered and site stabilized.',
+      resolvedAt: Date.now(),
+      volunteerName: volunteerName || 'Emergency Response Unit',
+      casualtiesAssisted: casualtiesAssisted ? parseInt(casualtiesAssisted) : need.estimatedScale
+    };
+
+    const timeline = [
+      ...(need.timeline || []),
+      {
+        timestamp: Date.now(),
+        action: `Mission RESOLVED with Proof of Work by ${volunteerName || 'Field Unit'}. Casualties Assisted: ${proofOfWork.casualtiesAssisted}.`,
+        actorRole: 'VOLUNTEER' as const
+      }
+    ];
+
+    await db.resolveNeed(needId);
+    await db.updateNeed(needId, { proofOfWork, timeline });
+
+    console.log(`✅ Incident Closed with Proof: ${need.ticketCode || need.id} at ${need.location.name}`);
+
+    res.json({ success: true, status: 'RESOLVED', proofOfWork });
+  } catch (error) {
+    console.error('Resolve error:', error);
+    res.status(500).json({ error: 'Failed to resolve incident' });
   }
 });
 
