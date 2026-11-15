@@ -130,6 +130,68 @@ class FirebaseDb {
     }
   }
 
+  async addVolunteer(volunteer: VolunteerProfile): Promise<void> {
+    if (useMock || !firestore) return mockDb.addVolunteer(volunteer);
+    try {
+      await firestore.collection('volunteers').doc(volunteer.id).set(volunteer);
+    } catch (e) {
+      useMock = true;
+      return mockDb.addVolunteer(volunteer);
+    }
+  }
+
+  async updateVolunteer(id: string, updates: Partial<VolunteerProfile>): Promise<VolunteerProfile | null> {
+    if (useMock || !firestore) return mockDb.updateVolunteer(id, updates);
+    try {
+      await firestore.collection('volunteers').doc(id).update(updates);
+      const doc = await firestore.collection('volunteers').doc(id).get();
+      return (doc.data() as VolunteerProfile) || null;
+    } catch (e) {
+      useMock = true;
+      return mockDb.updateVolunteer(id, updates);
+    }
+  }
+
+  async getVolunteerById(id: string): Promise<VolunteerProfile | null> {
+    if (useMock || !firestore) return mockDb.getVolunteerById(id);
+    try {
+      const doc = await firestore.collection('volunteers').doc(id).get();
+      if (!doc.exists) return null;
+      return (doc.data() as VolunteerProfile) || null;
+    } catch (e) {
+      useMock = true;
+      return mockDb.getVolunteerById(id);
+    }
+  }
+
+  async clearAllVolunteers(): Promise<void> {
+    if (useMock || !firestore) return mockDb.clearAllVolunteers();
+    try {
+      const snapshot = await firestore.collection('volunteers').get();
+      const batch = firestore.batch();
+      snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+      await batch.commit();
+    } catch (e) {
+      useMock = true;
+      return mockDb.clearAllVolunteers();
+    }
+  }
+
+  async deleteVolunteer(id: string): Promise<boolean> {
+    if (useMock || !firestore) return mockDb.deleteVolunteer(id);
+    try {
+      await firestore.collection('volunteers').doc(id).delete();
+      return true;
+    } catch (e) {
+      useMock = true;
+      return mockDb.deleteVolunteer(id);
+    }
+  }
+
+  seedNgoVolunteers(): void {
+    if (useMock || !firestore) return mockDb.seedNgoVolunteers();
+  }
+
   private async seedVolunteers() {
     if (useMock || !firestore) return;
     console.log("Seeding dummy volunteers to real Firestore...");

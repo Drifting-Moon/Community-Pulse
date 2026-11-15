@@ -18,7 +18,7 @@ const PredictionsSection: React.FC = () => {
 
   const fetchPredictions = async () => {
     try {
-      const res = await axios.get('http://localhost:3000/api/predictions');
+      const res = await axios.get('/api/predictions');
       setPredictions(res.data.predictions);
       setLastUpdated(res.data.lastUpdated);
     } catch (error) {

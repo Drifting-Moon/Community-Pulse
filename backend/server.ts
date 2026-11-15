@@ -8,7 +8,7 @@ import crypto from 'crypto';
 import { AIService } from './aiService';
 import { processDeduplication, haversineDistance } from './deduplication';
 import { db } from './firebaseDb';
-import { NeedEntity } from '../shared/types';
+import { NeedEntity, VolunteerProfile, EnRouteResponder } from '../shared/types';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -116,6 +116,83 @@ app.get('/needs', async (req, res) => {
   res.json(needs);
 });
 
+app.get('/needs/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const allNeeds = await db.getAllNeeds();
+    const need = allNeeds.find(n => n.id === id);
+    if (!need) return res.status(404).json({ error: 'Need not found' });
+    res.json(need);
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to fetch need' });
+  }
+});
+
+app.post('/needs/:id/respond', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { volunteerId, name, ngo, phone } = req.body;
+    const allNeeds = await db.getAllNeeds();
+    const need = allNeeds.find(n => n.id === id);
+    if (!need) return res.status(404).json({ error: 'Need not found' });
+
+    const responder: EnRouteResponder = {
+      id: volunteerId || crypto.randomUUID(),
+      name: name || 'Emergency Volunteer',
+      ngo: ngo || 'Independent Responder',
+      phone: phone || undefined,
+      dispatchedAt: Date.now()
+    };
+
+    const currentList = Array.isArray(need.enRouteVolunteers) ? need.enRouteVolunteers : [];
+    const alreadyInList = currentList.some(r => r.id === responder.id);
+    const updatedList = alreadyInList ? currentList : [...currentList, responder];
+
+    const updates: Partial<NeedEntity> = {
+      status: 'EN_ROUTE',
+      enRouteVolunteers: updatedList
+    };
+
+    await db.updateNeed(id, updates);
+    if (volunteerId) {
+      await db.updateVolunteer(volunteerId, { status: 'BUSY', lastDispatchedAt: Date.now() });
+    }
+
+    console.log(`🚗 Volunteer ${responder.name} [${responder.ngo}] is EN ROUTE to need ${id} (${need.location.name})`);
+    res.json({ success: true, need: { ...need, ...updates } });
+  } catch (e) {
+    console.error('Failed to mark responder en route:', e);
+    res.status(500).json({ error: 'Failed to record response' });
+  }
+});
+
+app.post('/needs/:id/cancel-respond', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { volunteerId } = req.body;
+    const allNeeds = await db.getAllNeeds();
+    const need = allNeeds.find(n => n.id === id);
+    if (!need) return res.status(404).json({ error: 'Need not found' });
+
+    const currentList = Array.isArray(need.enRouteVolunteers) ? need.enRouteVolunteers : [];
+    const updatedList = currentList.filter(r => r.id !== volunteerId);
+
+    const updates: Partial<NeedEntity> = {
+      enRouteVolunteers: updatedList,
+      status: updatedList.length === 0 ? 'OPEN' : 'EN_ROUTE'
+    };
+
+    await db.updateNeed(id, updates);
+    if (volunteerId) {
+      await db.updateVolunteer(volunteerId, { status: 'AVAILABLE' });
+    }
+
+    res.json({ success: true, need: { ...need, ...updates } });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to cancel response' });
+  }
+});
+
 app.delete('/needs', async (req, res) => {
   try {
     await db.clearAllNeeds();
@@ -128,6 +205,126 @@ app.delete('/needs', async (req, res) => {
 app.get('/volunteers', async (req, res) => {
   const vols = await db.getVolunteers();
   res.json(vols);
+});
+
+app.get('/volunteers/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const vols = await db.getVolunteers();
+    const volunteer = vols.find(v => v.id === id);
+    if (!volunteer) {
+      return res.status(404).json({ error: 'Volunteer not found' });
+    }
+    res.json(volunteer);
+  } catch (error) {
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+app.post('/volunteers', async (req, res) => {
+  try {
+    const { name, ngo, phone, email, preferredLanguage, skills, locationCoords, locationName } = req.body;
+    
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: 'Volunteer name is required' });
+    }
+
+    if (!locationCoords || typeof locationCoords.lat !== 'number' || typeof locationCoords.lng !== 'number') {
+      return res.status(400).json({ error: 'Valid location coordinates (lat, lng) are required' });
+    }
+
+    const newVolunteer: VolunteerProfile = {
+      id: crypto.randomUUID(),
+      name: name.trim(),
+      ngo: ngo && ngo.trim() ? ngo.trim() : 'Independent Civic Responder',
+      phone: phone ? phone.trim() : undefined,
+      email: email ? email.trim() : undefined,
+      preferredLanguage: preferredLanguage || 'English',
+      skills: Array.isArray(skills) && skills.length > 0 ? skills : ['general rescue'],
+      locationCoords: {
+        lat: Number(locationCoords.lat),
+        lng: Number(locationCoords.lng)
+      },
+      locationName: locationName || 'Custom Location',
+      reliabilityRate: 0.95,
+      status: 'AVAILABLE',
+      hoursLast30Days: 0,
+      pastContributions: ['Newly registered responder in CommunityPulse network'],
+      registeredAt: Date.now()
+    };
+
+    await db.addVolunteer(newVolunteer);
+    console.log(`🙋 New Volunteer Registered: ${newVolunteer.name} [${newVolunteer.ngo}] at ${newVolunteer.locationName} (${newVolunteer.locationCoords.lat}, ${newVolunteer.locationCoords.lng})`);
+    
+    res.status(201).json({ success: true, volunteer: newVolunteer });
+  } catch (error) {
+    console.error('Failed to register volunteer:', error);
+    res.status(500).json({ error: 'Failed to register volunteer' });
+  }
+});
+
+app.patch('/volunteers/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { ngo, locationCoords, locationName, status, skills, preferredLanguage, phone, email } = req.body;
+    
+    const updates: Partial<VolunteerProfile> = {};
+    if (ngo !== undefined) updates.ngo = ngo.trim();
+    if (locationCoords && typeof locationCoords.lat === 'number' && typeof locationCoords.lng === 'number') {
+      updates.locationCoords = {
+        lat: Number(locationCoords.lat),
+        lng: Number(locationCoords.lng)
+      };
+    }
+    if (locationName) updates.locationName = locationName;
+    if (status && ['AVAILABLE', 'BUSY', 'OFF_DUTY'].includes(status)) {
+      updates.status = status;
+    }
+    if (skills && Array.isArray(skills)) updates.skills = skills;
+    if (preferredLanguage) updates.preferredLanguage = preferredLanguage;
+    if (phone !== undefined) updates.phone = phone;
+    if (email !== undefined) updates.email = email;
+
+    const updated = await db.updateVolunteer(id, updates);
+    if (!updated) {
+      return res.status(404).json({ error: 'Volunteer not found' });
+    }
+
+    console.log(`🔄 Volunteer ${id} updated:`, updates);
+    res.json({ success: true, volunteer: updated });
+  } catch (error) {
+    console.error('Failed to update volunteer:', error);
+    res.status(500).json({ error: 'Failed to update volunteer' });
+  }
+});
+
+app.delete('/volunteers/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await db.deleteVolunteer(id);
+    res.json({ success: true, message: `Volunteer ${id} removed` });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete volunteer' });
+  }
+});
+
+app.delete('/volunteers', async (req, res) => {
+  try {
+    await db.clearAllVolunteers();
+    res.json({ success: true, message: 'All volunteers cleared' });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to clear volunteers' });
+  }
+});
+
+app.post('/volunteers/seed', async (req, res) => {
+  try {
+    db.seedNgoVolunteers();
+    const vols = await db.getVolunteers();
+    res.json({ success: true, count: vols.length, volunteers: vols });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to seed verified NGO teams' });
+  }
 });
 
 app.post('/ingest', upload.single('image'), async (req, res) => {
@@ -230,7 +427,7 @@ app.post('/ingest-audio', express.json({ limit: '10mb' }), async (req, res) => {
 
 app.post('/dispatch', async (req, res) => {
   try {
-    const { needId } = req.body;
+    const { needId, volunteerId } = req.body;
     if (!needId) return res.status(400).json({ error: 'needId required' });
 
     const allNeeds = await db.getAllNeeds();
@@ -238,42 +435,82 @@ app.post('/dispatch', async (req, res) => {
     if (!need) return res.status(404).json({ error: 'Need not found' });
 
     const volunteers = await db.getVolunteers();
+    let topVolunteer: VolunteerProfile | null = null;
 
-    const eligibleVolunteers = volunteers.filter(v => {
-      if (v.hoursLast30Days > 20) return false;
-      const dist = haversineDistance(
-        need.location.lat, need.location.lng,
-        v.locationCoords.lat, v.locationCoords.lng
-      );
-      if (dist > 5.0) return false;
-      return true;
-    });
-
-    if (eligibleVolunteers.length === 0) {
-      return res.status(404).json({ error: 'No eligible volunteers found nearby' });
+    if (volunteerId) {
+      topVolunteer = volunteers.find(v => v.id === volunteerId) || null;
     }
 
-    const scoredVolunteers = eligibleVolunteers.map(v => {
-      const dist = haversineDistance(need.location.lat, need.location.lng, v.locationCoords.lat, v.locationCoords.lng);
-      const inverseDistance = Math.max(0, 1 - (dist / 5.0));
-      const skillMatch = v.skills.includes(need.crisisType) ? 1.0 : 0.0;
-      const matchScore = (v.reliabilityRate * 0.5) + (skillMatch * 0.3) + (inverseDistance * 0.2);
-      return { volunteer: v, matchScore };
-    });
+    if (!topVolunteer) {
+      // Find eligible volunteers within 5km, or expand up to 35km if none immediately available
+      let eligibleVolunteers = volunteers.filter(v => {
+        if (v.status === 'OFF_DUTY') return false;
+        const dist = haversineDistance(
+          need.location.lat, need.location.lng,
+          v.locationCoords.lat, v.locationCoords.lng
+        );
+        return dist <= 5.0;
+      });
 
-    scoredVolunteers.sort((a, b) => b.matchScore - a.matchScore);
-    if (!scoredVolunteers[0]) return res.status(404).json({ error: 'No volunteers available after scoring' });
-    const topVolunteer = scoredVolunteers[0].volunteer;
+      if (eligibleVolunteers.length === 0) {
+        eligibleVolunteers = volunteers.filter(v => v.status !== 'OFF_DUTY');
+      }
+
+      if (eligibleVolunteers.length === 0) {
+        return res.status(404).json({ error: 'No volunteers available for dispatch.' });
+      }
+
+      const scoredVolunteers = eligibleVolunteers.map(v => {
+        const dist = haversineDistance(need.location.lat, need.location.lng, v.locationCoords.lat, v.locationCoords.lng);
+        const inverseDistance = Math.max(0, 1 - (dist / 25.0));
+        const skillMatch = v.skills.some(s => s.toLowerCase().includes(need.crisisType.toLowerCase())) ? 1.0 : 0.0;
+        const matchScore = (v.reliabilityRate * 0.5) + (skillMatch * 0.3) + (inverseDistance * 0.2);
+        return { volunteer: v, matchScore, dist };
+      });
+
+      scoredVolunteers.sort((a, b) => b.matchScore - a.matchScore);
+      topVolunteer = scoredVolunteers[0]?.volunteer || null;
+    }
+
+    if (!topVolunteer) {
+      return res.status(404).json({ error: 'No suitable volunteers found' });
+    }
 
     const dispatchMessage = await AIService.generateDispatchMessage(topVolunteer, need);
 
-    res.json({
-      volunteer: topVolunteer,
+    // Attach volunteer to need as EN_ROUTE
+    const responder: EnRouteResponder = {
+      id: topVolunteer.id,
+      name: topVolunteer.name,
+      ngo: topVolunteer.ngo,
+      phone: topVolunteer.phone,
+      dispatchedAt: Date.now()
+    };
+
+    const currentList = Array.isArray(need.enRouteVolunteers) ? need.enRouteVolunteers : [];
+    const alreadyIn = currentList.some(r => r.id === responder.id);
+    const updatedList = alreadyIn ? currentList : [...currentList, responder];
+
+    const updates: Partial<NeedEntity> = {
+      status: 'EN_ROUTE',
+      enRouteVolunteers: updatedList,
       dispatchMessage
+    };
+
+    await db.updateNeed(need.id, updates);
+    await db.updateVolunteer(topVolunteer.id, { status: 'BUSY', lastDispatchedAt: Date.now() });
+
+    console.log(`🚀 Dispatch Executed: ${topVolunteer.name} (${topVolunteer.ngo}) dispatched to ${need.location.name}. Need status: EN_ROUTE`);
+
+    res.json({
+      success: true,
+      volunteer: topVolunteer,
+      dispatchMessage,
+      need: { ...need, ...updates }
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    console.error('Dispatch error:', error);
+    res.status(500).json({ error: 'Internal Server Error during dispatch' });
   }
 });
 

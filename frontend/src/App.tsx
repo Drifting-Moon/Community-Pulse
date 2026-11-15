@@ -31,6 +31,7 @@ import {
   BoltIcon, ExclamationTriangleIcon, PaperAirplaneIcon,
   SignalSlashIcon, MicrophoneIcon, StopCircleIcon, BellAlertIcon,
   PhoneIcon, ChevronLeftIcon, SparklesIcon, CameraIcon,
+  ShieldCheckIcon,
   XMarkIcon as XMarkMini
 } from '@heroicons/react/24/outline';
 
@@ -181,7 +182,7 @@ const AdaptiveCircle = ({ need, isSelected, onClick }: {
   );
 };
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:3000';
+const API_BASE = import.meta.env.VITE_API_BASE || '';
 
 export default function App() {
   const navItems = [
@@ -443,9 +444,13 @@ export default function App() {
     try {
       const response = await axios.post(`${API_BASE}/dispatch`, { needId });
       setDispatchResult(response.data);
+      if (response.data.need) {
+        setSelectedNeed(response.data.need);
+        setNeeds(prev => prev.map(n => n.id === needId ? response.data.need : n));
+      }
       setCriticalAlerts(prev => prev.filter(a => a.id !== needId));
-      setToastMessage(`✓ ${response.data.volunteer.name} notified via WhatsApp`);
-      setTimeout(() => setToastMessage(null), 3000);
+      setToastMessage(`✓ Dispatched ${response.data.volunteer.name} (${response.data.volunteer.ngo || 'Responder'})! Help is en route.`);
+      setTimeout(() => setToastMessage(null), 4000);
     } catch (error: unknown) {
       const message = axios.isAxiosError(error)
         ? (error.response?.data?.error || error.message)
@@ -739,11 +744,17 @@ export default function App() {
 
               <div className="hidden lg:flex space-x-8">
                 <div className="flex flex-col items-center">
-                  <span className="text-white text-xl mono font-bold leading-none">{needs.filter(n => n?.status === 'OPEN').length}</span>
+                  <span className="text-white text-xl mono font-bold leading-none">{needs.filter(n => n?.status === 'OPEN' || n?.status === 'CRITICAL_VELOCITY').length}</span>
                   <span className="text-blue-300/80 text-[9px] uppercase tracking-[0.1em] font-bold mt-1">Active Crises</span>
                 </div>
                 <div className="flex flex-col items-center">
-                  <span className="text-white text-xl mono font-bold leading-none">{(volunteers || []).filter(v => v?.status === 'AVAILABLE').length || 184}</span>
+                  <span className="text-emerald-400 text-xl mono font-black leading-none">
+                    {needs.reduce((acc, n) => acc + (n.enRouteVolunteers?.length || (n.status === 'EN_ROUTE' ? 1 : 0)), 0)}
+                  </span>
+                  <span className="text-emerald-300/90 text-[9px] uppercase tracking-[0.1em] font-bold mt-1">🚗 Responders En Route</span>
+                </div>
+                <div className="flex flex-col items-center">
+                  <span className="text-white text-xl mono font-bold leading-none">{(volunteers || []).filter(v => v?.status === 'AVAILABLE').length}</span>
                   <span className="text-purple-300/80 text-[9px] uppercase tracking-[0.1em] font-bold mt-1">Volunteers Ready</span>
                 </div>
               </div>
@@ -929,12 +940,17 @@ export default function App() {
                           </span>
                         </div>
                         <div className="mb-2">
-                          <h4 className={`text-[13px] font-bold ${theme.text} capitalize flex items-center`}>
-                            <span className="text-lg mr-2">{getCrisisStyle(need?.crisisType || 'other').icon}</span>
+                          <h4 className={`text-[13px] font-bold ${theme.text} capitalize flex items-center flex-wrap gap-1`}>
+                            <span className="text-lg mr-1">{getCrisisStyle(need?.crisisType || 'other').icon}</span>
                             {need?.crisisType || 'Report'}
                             {(need as NeedEntity & { isLocal?: boolean }).isLocal && (
-                              <span className="ml-2 px-1.5 py-0.5 bg-amber-500/20 text-amber-500 text-[8px] font-black uppercase rounded border border-amber-500/30 tracking-tighter">
+                              <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-500 text-[8px] font-black uppercase rounded border border-amber-500/30 tracking-tighter">
                                 ⚡ Local Parse
+                              </span>
+                            )}
+                            {((need.enRouteVolunteers && need.enRouteVolunteers.length > 0) || need.status === 'EN_ROUTE') && (
+                              <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 text-[8px] font-black uppercase rounded border border-emerald-500/40 animate-pulse flex items-center gap-1">
+                                🚗 {need.enRouteVolunteers?.length || 1} En Route
                               </span>
                             )}
                           </h4>
@@ -1108,9 +1124,40 @@ export default function App() {
                         </div>
                         <div className={`${theme.surface} border ${theme.border} rounded-xl p-4 shadow-sm transition-all duration-300`}>
                           <p className={`text-[10px] uppercase font-bold ${theme.textMuted} mb-1`}>Status</p>
-                          <p className="text-indigo-400 font-bold">{selectedNeed?.status || 'OPEN'}</p>
+                          <p className={`font-bold ${selectedNeed?.status === 'EN_ROUTE' ? 'text-emerald-400 animate-pulse' : 'text-indigo-400'}`}>
+                            {selectedNeed?.status === 'EN_ROUTE' ? '🚗 EN ROUTE' : (selectedNeed?.status || 'OPEN')}
+                          </p>
                         </div>
                       </div>
+
+                      {/* En Route Responders Live Panel */}
+                      {selectedNeed?.enRouteVolunteers && selectedNeed.enRouteVolunteers.length > 0 && (
+                        <div className="mt-4 bg-emerald-950/40 border border-emerald-500/40 rounded-2xl p-4 space-y-2">
+                          <div className="flex items-center justify-between text-xs font-bold text-emerald-400">
+                            <span className="flex items-center gap-1.5 uppercase tracking-wider">
+                              🚗 {selectedNeed.enRouteVolunteers.length} Responder(s) En Route
+                            </span>
+                            <span className="text-[10px] bg-emerald-500/20 px-2 py-0.5 rounded text-emerald-300 border border-emerald-500/30">
+                              DISPATCH ACTIVE
+                            </span>
+                          </div>
+                          <div className="space-y-1.5">
+                            {selectedNeed.enRouteVolunteers.map((resp, i) => (
+                              <div key={i} className="flex justify-between items-center bg-[#0d1117] p-2.5 rounded-xl border border-emerald-500/20 text-xs">
+                                <div>
+                                  <div className="font-bold text-white">{resp.name}</div>
+                                  <div className="text-[11px] text-gray-400 font-medium">
+                                    {resp.ngo || 'Independent'} {resp.phone ? `• ${resp.phone}` : ''}
+                                  </div>
+                                </div>
+                                <span className="text-emerald-400 font-bold text-[10px] uppercase bg-emerald-500/10 px-2 py-0.5 rounded">
+                                  En Route
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
 
                       <div className="mt-8 flex gap-4">
                         <button
@@ -1243,14 +1290,30 @@ export default function App() {
 
         <div className={`p-6 border-t border-white/5 mt-auto ${isSidebarCollapsed ? 'items-center' : ''}`}>
           {!isSidebarCollapsed && (
-            <div className="mb-4 px-2">
+            <div className="mb-4 px-2 space-y-2">
+              <div className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400 px-1 mb-1">
+                3 Dedicated Portals
+              </div>
               <button
                 onClick={() => window.open('/report', '_blank')}
-                className="w-full py-2 px-3 bg-blue-600/20 text-blue-400 border border-blue-500/30 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-600/30 transition-all flex items-center justify-center group"
+                className="w-full py-2 px-2.5 bg-rose-600/20 text-rose-300 border border-rose-500/30 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-600/30 transition-all flex items-center justify-between group shadow-sm"
               >
-                User Portal
-                <PaperAirplaneIcon className="w-3 h-3 ml-2 -rotate-45 group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
+                <span>📢 Citizen SOS</span>
+                <span className="text-rose-400 group-hover:translate-x-0.5 transition-transform">→</span>
               </button>
+              <button
+                onClick={() => window.open('/volunteer', '_blank')}
+                className="w-full py-2 px-2.5 bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-600/30 transition-all flex items-center justify-between group shadow-sm"
+              >
+                <span>📱 Volunteer Field</span>
+                <span className="text-indigo-400 group-hover:translate-x-0.5 transition-transform">→</span>
+              </button>
+              <div
+                className="w-full py-2 px-2.5 bg-blue-600/30 text-blue-200 border border-blue-500/40 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-between shadow-sm"
+              >
+                <span>🖥️ Admin Command</span>
+                <span className="w-2 h-2 rounded-full bg-blue-400 animate-ping"></span>
+              </div>
             </div>
           )}
           {!isSidebarCollapsed && (
@@ -1304,6 +1367,13 @@ export default function App() {
               </div>
             </div>
             <div className="flex items-center gap-3">
+              <button
+                onClick={() => window.open('/volunteer', '_blank')}
+                className="bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-400 border border-indigo-500/30 px-3 py-1 rounded-full text-[10px] font-bold transition-all flex items-center shadow-lg h-7 gap-1"
+                title="Open Volunteer Field Portal"
+              >
+                <span>📱</span> Volunteer Portal
+              </button>
               <button
                 onClick={() => setIsCallModalOpen(true)}
                 className="bg-red-600/10 hover:bg-red-600/20 text-red-500 border border-red-500/30 w-8 h-8 rounded-full flex items-center justify-center transition-all shadow-lg group relative"

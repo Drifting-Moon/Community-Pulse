@@ -15,7 +15,7 @@ import { PhoneIcon, ArrowLeftIcon } from '@heroicons/react/24/outline';
 import { useNavigate } from 'react-router-dom';
 import VoiceCallModal from '../components/VoiceCallModal';
 
-const API_BASE = 'http://localhost:3000';
+const API_BASE = import.meta.env.VITE_API_BASE || '';
 
 type CrisisType = 'medical' | 'flood' | 'fire' | 'food' | 'infrastructure' | 'other';
 
@@ -115,24 +115,46 @@ export default function ReportPage() {
     };
   }, []);
 
-  // Poll status if report submitted
-  useEffect(() => {
-    if (!isSuccess || !reportId) return;
+  const [enRouteResponders, setEnRouteResponders] = useState<Array<{ name: string; ngo?: string; phone?: string; dispatchedAt: number }>>([]);
 
+  // Fast polling (every 3s) for active report status and en-route responders
+  useEffect(() => {
     const checkStatus = async () => {
       try {
         const res = await axios.get(`${API_BASE}/needs`);
-        const found = res.data.find((n: NeedEntity) => n.id.startsWith(reportId.replace('#CP-', '').toLowerCase()));
-        if (found) setReportStatus(found.status);
+        const allNeeds: NeedEntity[] = res.data || [];
+        
+        // Find matching report either from current reportId or latest from myReports
+        const targetRealId = reportId ? reportId.replace('#CP-', '').toLowerCase() : (myReports[0] as any)?.realId?.toLowerCase();
+        
+        let found = targetRealId ? allNeeds.find((n: NeedEntity) => n.id.toLowerCase().startsWith(targetRealId) || (n.id.toLowerCase() === targetRealId)) : null;
+        if (!found && myReports.length > 0) {
+          // Fallback matching by landmark/location
+          found = allNeeds.find((n: NeedEntity) => n.location?.name && myReports[0]?.location && n.location.name.includes(myReports[0].location));
+        }
+
+        if (found) {
+          setReportStatus(found.status);
+          const responders = found.enRouteVolunteers || [];
+          setEnRouteResponders(responders);
+
+          // Update myReports local state
+          setMyReports(prev => prev.map((r, i) => {
+            if (i === 0) {
+              return { ...r, status: found!.status, enRouteVolunteers: responders };
+            }
+            return r;
+          }));
+        }
       } catch {
-        console.error('Failed to poll status');
+        // silent
       }
     };
 
-    const interval = setInterval(checkStatus, 30000);
+    const interval = setInterval(checkStatus, 3000);
     checkStatus();
     return () => clearInterval(interval);
-  }, [isSuccess, reportId]);
+  }, [isSuccess, reportId, myReports]);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -188,19 +210,22 @@ export default function ReportPage() {
         if (selectedImage) formData.append('image', selectedImage);
 
         const res = await axios.post(`${API_BASE}/ingest`, formData);
-        const id = res.data.id.substring(0, 4).toUpperCase();
-        const displayId = `#CP-${id}`;
+        const realId = res.data.id;
+        const shortId = realId.substring(0, 4).toUpperCase();
+        const displayId = `#CP-${shortId}`;
         setReportId(displayId);
         setIsSuccess(true);
 
-        // Update localStorage
+        // Update localStorage with realId for live tracking
         const newReport = {
           id: displayId,
+          realId: realId,
           type: selectedType,
           emoji: crisisOptions.find(o => o.type === selectedType)?.emoji,
           location: landmark || 'Current Location',
           status: 'OPEN',
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          enRouteVolunteers: []
         };
         const updated = [newReport, ...myReports].slice(0, 5);
         setMyReports(updated);
@@ -230,12 +255,53 @@ export default function ReportPage() {
             <p className="font-mono text-xl text-green-500 font-bold">{reportId}</p>
           </div>
 
-          <div className={`${theme.surface} p-6 rounded-[2rem] border ${theme.border} space-y-4 shadow-xl`}>
-            <p className="text-sm leading-relaxed">Trained volunteers have been notified. Help is on the way.</p>
-            <div className="py-2 px-4 bg-green-500/10 rounded-full inline-block">
-              <p className="text-[10px] font-bold text-green-500 uppercase tracking-widest">Expected response: within 30-60 mins</p>
+          {/* LIVE EN ROUTE ALERT CARD */}
+          {(reportStatus === 'EN_ROUTE' || enRouteResponders.length > 0) ? (
+            <div className="bg-emerald-950/90 border-2 border-emerald-500 p-6 rounded-[2rem] space-y-3 shadow-2xl text-left animate-pulse">
+              <div className="flex items-center space-x-2">
+                <span className="w-3 h-3 rounded-full bg-emerald-400 animate-ping"></span>
+                <span className="text-xs font-black uppercase tracking-widest text-emerald-300">
+                  🚗 RESCUE TEAM EN ROUTE!
+                </span>
+              </div>
+              <h2 className="text-xl font-black text-white">Help is Coming to Your Location</h2>
+              <p className="text-xs text-emerald-200 leading-relaxed">
+                {enRouteResponders.length > 0
+                  ? `${enRouteResponders.length} responder(s) are en route to your location. Please stay in a safe, visible position.`
+                  : "A first responder is currently en route to your emergency site. Stand by."}
+              </p>
+
+              {enRouteResponders.length > 0 && (
+                <div className="space-y-2 pt-2 border-t border-emerald-800/80">
+                  {enRouteResponders.map((resp, i) => (
+                    <div key={i} className="bg-[#0d1117] p-3 rounded-xl border border-emerald-500/40 flex items-center justify-between">
+                      <div>
+                        <div className="font-bold text-white text-sm">{resp.name}</div>
+                        <div className="text-emerald-400 text-[11px] font-semibold">{resp.ngo || 'First Responder'}</div>
+                      </div>
+                      {resp.phone && (
+                        <a
+                          href={`tel:${resp.phone}`}
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-all shadow"
+                        >
+                          📞 Call
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-          </div>
+          ) : (
+            <div className={`${theme.surface} p-6 rounded-[2rem] border ${theme.border} space-y-4 shadow-xl`}>
+              <p className="text-sm leading-relaxed">Trained volunteers and Command Center have been alerted. Help is on the way.</p>
+              <div className="py-2 px-4 bg-green-500/10 rounded-full inline-block">
+                <p className="text-[10px] font-bold text-green-500 uppercase tracking-widest">
+                  Live Dispatch Pending • Standing by for nearby responders
+                </p>
+              </div>
+            </div>
+          )}
 
           <div className="flex flex-col gap-4">
             <div className={`p-4 rounded-xl border ${theme.border} ${theme.surface} flex justify-between items-center`}>
@@ -258,8 +324,49 @@ export default function ReportPage() {
 
   return (
     <div className={`min-h-screen h-screen overflow-y-auto ${theme.bg} ${theme.text} transition-all duration-300 font-sans`}>
+      {/* 3-Portal Switcher */}
+      <div className="max-w-2xl mx-auto px-6 pt-4 flex items-center justify-between gap-2 text-xs">
+        <div className="flex-1 py-1.5 px-2 rounded-xl bg-rose-600 text-white font-bold text-center flex items-center justify-center gap-1 shadow">
+          <span>📢</span> Citizen SOS Portal
+        </div>
+        <a
+          href="/volunteer"
+          className="flex-1 py-1.5 px-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-400 hover:text-white transition-all text-center font-bold flex items-center justify-center gap-1"
+        >
+          <span>📱</span> Volunteer Portal
+        </a>
+        <a
+          href="/"
+          className="flex-1 py-1.5 px-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-400 hover:text-white transition-all text-center font-bold flex items-center justify-center gap-1"
+        >
+          <span>🖥️</span> Admin Command
+        </a>
+      </div>
+
+      {/* Active En Route Mission Tracker for Reporter */}
+      {myReports.length > 0 && (myReports[0].status === 'EN_ROUTE' || enRouteResponders.length > 0) && (
+        <div className="max-w-[480px] mx-auto px-6 mt-4">
+          <div className="bg-emerald-950/90 border-2 border-emerald-500 rounded-2xl p-4 shadow-xl space-y-1.5 animate-pulse text-left">
+            <div className="flex items-center space-x-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></span>
+              <span className="text-[10px] font-black uppercase tracking-wider text-emerald-300">
+                🚗 HELP IS EN ROUTE!
+              </span>
+            </div>
+            <p className="text-xs text-white font-bold">
+              Responders dispatched to your location ({myReports[0].location}).
+            </p>
+            {enRouteResponders.length > 0 && (
+              <div className="text-[11px] text-emerald-200 font-medium">
+                Active team: {enRouteResponders.map(r => `${r.name} [${r.ngo || 'Responder'}]`).join(', ')}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Header */}
-      <header className="py-8 px-10 flex justify-between items-center w-full">
+      <header className="py-6 px-10 flex justify-between items-center w-full">
         <button
           onClick={() => navigate('/')}
           className={`flex items-center gap-2 px-4 py-1.5 rounded-full border ${theme.border} ${theme.surfaceSoft} ${theme.text} hover:bg-white/10 transition-all text-[11px] font-bold shadow-lg active:scale-95 group`}

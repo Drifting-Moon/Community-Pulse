@@ -3,7 +3,7 @@ import axios from 'axios';
 import { PaperAirplaneIcon, TrashIcon, SparklesIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import type { NeedEntity, VolunteerProfile } from '../types';
 
-const API_BASE = 'http://localhost:3000';
+const API_BASE = import.meta.env.VITE_API_BASE || '';
 
 interface Message {
   role: 'user' | 'model';

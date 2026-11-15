@@ -7,7 +7,7 @@ export default function AnalyticsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    axios.get('http://localhost:3000/needs')
+    axios.get('/needs')
       .then(res => {
         setCrises(res.data);
         setLoading(false);

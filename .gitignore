@@ -32,7 +32,7 @@ yarn-error.log*
 .gemini/
 .antigravity/
 
-# Hackathon Temporary Scripts
+# Project Scratch Scripts
 *.py
 backend/*.py
 frontend/*.py

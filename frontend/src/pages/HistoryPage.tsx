@@ -17,7 +17,7 @@ export default function HistoryPage() {
 
   const handleResolve = async (id: string) => {
     try {
-      await fetch(`http://localhost:3000/needs/${id}/resolve`, { method: 'POST' });
+      await fetch(`/needs/${id}/resolve`, { method: 'POST' });
       setNeeds(prev => prev.map(n => n.id === id ? { ...n, status: 'RESOLVED' } : n));
     } catch (err) {
       console.error(err);
@@ -25,7 +25,7 @@ export default function HistoryPage() {
   };
 
   useEffect(() => {
-    fetch('http://localhost:3000/needs')
+    fetch('/needs')
       .then(res => res.json())
       .then(data => {
         setNeeds(data);

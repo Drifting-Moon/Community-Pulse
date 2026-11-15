@@ -7,7 +7,7 @@ import VolunteerApp from './VolunteerApp.tsx'
 
 import { BrowserRouter } from 'react-router-dom';
 
-const isVolunteer = window.location.search.includes('view=volunteer');
+const isVolunteer = window.location.search.includes('view=volunteer') || window.location.pathname.startsWith('/volunteer');
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
