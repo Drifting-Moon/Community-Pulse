@@ -595,6 +595,22 @@ app.get(['/admin/auth/accounts', '/api/admin/auth/accounts'], async (req, res) =
   }
 });
 
+app.get(['/organizations', '/api/organizations'], async (req, res) => {
+  try {
+    const accounts = await db.getAdminAccounts();
+    const organizations = accounts.map(a => ({
+      id: a.id,
+      name: a.departmentName,
+      category: a.departmentCategory,
+      stationName: a.stationName,
+      hasCode: !!a.ngoCode
+    }));
+    res.json({ success: true, organizations });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to retrieve organizations' });
+  }
+});
+
 app.patch(['/admin/auth/account/:id/code', '/api/admin/auth/account/:id/code'], async (req, res) => {
   try {
     const rawId = req.params.id;

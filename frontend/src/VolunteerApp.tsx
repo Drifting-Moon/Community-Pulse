@@ -116,7 +116,7 @@ export default function VolunteerApp() {
 
   const [regStep, setRegStep] = useState<1 | 2 | 3>(1);
   const [regName, setRegName] = useState<string>('');
-  const [regNgo, setRegNgo] = useState<string>('Red Cross Society India');
+  const [regNgo, setRegNgo] = useState<string>('Independent Civic Responder');
   const [regNgoCode, setRegNgoCode] = useState<string>('');
   const [regPhone, setRegPhone] = useState<string>('');
   const [regLanguage, setRegLanguage] = useState<string>('English');
@@ -126,6 +126,9 @@ export default function VolunteerApp() {
   const [regLng, setRegLng] = useState<number>(72.8538);
   const [isGpsLoading, setIsGpsLoading] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+
+  // Dynamic registered organizations list
+  const [organizations, setOrganizations] = useState<{ id: string; name: string; stationName?: string; hasCode?: boolean }[]>([]);
 
   // Volunteer Authentication state
   const [authTab, setAuthTab] = useState<'signin' | 'register'>('signin');
@@ -188,6 +191,30 @@ export default function VolunteerApp() {
       setShowRegisterModal(true);
     }
   }, [volunteer]);
+
+  useEffect(() => {
+    const fetchOrgs = async () => {
+      try {
+        let res;
+        try {
+          res = await axios.get(`${API_BASE}/organizations`);
+        } catch {
+          res = await axios.get(`${API_BASE}/api/organizations`);
+        }
+        if (res.data?.organizations && Array.isArray(res.data.organizations)) {
+          setOrganizations(res.data.organizations);
+        }
+      } catch {
+        setOrganizations([
+          { id: 'sdrf', name: 'State Disaster Management Force (SDRF)' },
+          { id: 'ndrf', name: 'National Disaster Response Force (NDRF Auxiliary)' },
+          { id: 'fire', name: 'City Fire & Emergency Rescue Service' },
+          { id: 'redcross', name: 'Red Cross Disaster Relief Team', hasCode: true }
+        ]);
+      }
+    };
+    fetchOrgs();
+  }, []);
 
   const handleDetectGPS = (forRegistration: boolean = true) => {
     if (!navigator.geolocation) {
@@ -1121,20 +1148,25 @@ export default function VolunteerApp() {
                     </div>
 
                     <div>
-                      <label className="block text-gray-700 font-medium mb-1">Organization *</label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-gray-700 font-medium">Organization / Response Unit *</label>
+                        <span className="text-[11px] text-emerald-600 font-semibold">Registered Units</span>
+                      </div>
                       <select
                         value={regNgo}
                         onChange={(e) => setRegNgo(e.target.value)}
-                        className="w-full h-10 bg-white border border-gray-300 rounded-lg px-3 text-gray-900 focus:outline-none focus:border-gray-900"
+                        className="w-full h-10 bg-white border border-gray-300 rounded-lg px-3 text-gray-900 focus:outline-none focus:border-gray-900 cursor-pointer text-[14px]"
                       >
-                        <option value="Red Cross Society India">Red Cross Society India</option>
-                        <option value="Goonj Relief Force">Goonj Relief Force</option>
-                        <option value="SEEDS India Disaster Response">SEEDS India Disaster Response</option>
-                        <option value="NDRF Auxiliary Volunteers">NDRF Auxiliary Volunteers</option>
-                        <option value="Doctors Without Borders">Doctors Without Borders</option>
-                        <option value="Civil Defense Corps">Civil Defense Corps</option>
-                        <option value="Independent Civic Responder">Independent Civic Responder</option>
+                        <option value="Independent Civic Responder">Independent Civic Responder (Unaffiliated)</option>
+                        {organizations.map((org) => (
+                          <option key={org.id} value={org.name}>
+                            {org.name} {org.stationName ? `(${org.stationName})` : ''}
+                          </option>
+                        ))}
                       </select>
+                      <p className="text-[11px] text-gray-500 mt-1">
+                        Select your accredited emergency department or NGO. Unaffiliated citizens can select Independent.
+                      </p>
                     </div>
 
                     <div>

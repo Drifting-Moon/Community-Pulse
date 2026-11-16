@@ -24,15 +24,12 @@ function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
   return R * c;
 }
 
-const NGO_LIST = [
-  'Red Cross Society India',
-  'Goonj Relief Force',
-  'SEEDS India Disaster Response',
-  'NDRF Auxiliary Volunteers',
-  'Doctors Without Borders (MSF)',
-  'Robin Hood Army',
-  'Civil Defense Corps',
-  'Independent Civic Responder'
+const DEFAULT_ORGANIZATIONS = [
+  'Independent Civic Responder',
+  'State Disaster Management Force (SDRF)',
+  'National Disaster Response Force (NDRF Auxiliary)',
+  'City Fire & Emergency Rescue Service',
+  'Red Cross Disaster Relief Team'
 ];
 
 const ANCHOR_PRESETS = [
@@ -72,6 +69,7 @@ export default function VolunteersPage() {
   const [radiusKm, setRadiusKm] = useState<number>(15);
   const [ngoFilter, setNgoFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [orgList, setOrgList] = useState<string[]>(DEFAULT_ORGANIZATIONS);
 
   // Registration modal state
   const [showRegisterModal, setShowRegisterModal] = useState(false);
@@ -101,6 +99,22 @@ export default function VolunteersPage() {
 
   useEffect(() => {
     fetchVolunteers();
+    const fetchOrgs = async () => {
+      try {
+        let res;
+        try {
+          res = await axios.get(`${API_BASE}/organizations`);
+        } catch {
+          res = await axios.get(`${API_BASE}/api/organizations`);
+        }
+        if (res.data?.organizations && Array.isArray(res.data.organizations)) {
+          const names = res.data.organizations.map((o: any) => o.name);
+          const merged = Array.from(new Set(['Independent Civic Responder', ...names]));
+          setOrgList(merged);
+        }
+      } catch {}
+    };
+    fetchOrgs();
   }, []);
 
   const handleRegisterSubmit = async () => {
@@ -342,7 +356,7 @@ export default function VolunteersPage() {
           className="h-10 bg-[#141416] border border-[#26262A] rounded-[8px] px-3 text-[13px] text-white focus:outline-none"
         >
           <option value="ALL">All organizations</option>
-          {NGO_LIST.map((ngo) => (
+          {orgList.map((ngo) => (
             <option key={ngo} value={ngo}>
               {ngo}
             </option>
@@ -625,7 +639,7 @@ export default function VolunteersPage() {
                     onChange={(e) => setRegNgo(e.target.value)}
                     className="w-full h-10 bg-[#0E0E10] border border-[#26262A] rounded-[8px] px-3 text-white focus:outline-none"
                   >
-                    {NGO_LIST.map((n) => (
+                    {orgList.map((n) => (
                       <option key={n} value={n}>
                         {n}
                       </option>

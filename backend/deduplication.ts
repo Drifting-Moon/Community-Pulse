@@ -36,15 +36,19 @@ const SEVERITY_WEIGHTS: Record<string, number> = {
   other: 50
 };
 
+function distToString(distKm: number): string {
+  if (!isFinite(distKm)) return '';
+  return distKm < 1 ? `${Math.round(distKm * 1000)}m` : `${distKm.toFixed(2)}km`;
+}
+
 export async function processDeduplication(newNeed: NeedEntity): Promise<NeedEntity> {
   const recentNeeds = await db.getRecentUnresolvedNeeds();
   
   let bestMatch: NeedEntity | null = null;
   let highestSim = 0;
+  let shortestDist = Infinity;
 
   for (const existing of recentNeeds) {
-    if (!existing.embedding || !newNeed.embedding) continue;
-    
     const dist = haversineDistance(
       newNeed.location.lat, newNeed.location.lng,
       existing.location.lat, existing.location.lng
@@ -52,10 +56,30 @@ export async function processDeduplication(newNeed: NeedEntity): Promise<NeedEnt
 
     // Tightened urban clustering radius to 500m (0.5km) to prevent merging distinct incidents
     if (dist <= 0.5) {
-      const sim = cosineSimilarity(newNeed.embedding, existing.embedding);
-      if (sim > 0.85 && sim > highestSim) {
-        highestSim = sim;
-        bestMatch = existing;
+      let isMatch = false;
+
+      // 1. AI Vector Embedding check (if embeddings exist for both)
+      if (
+        existing.embedding &&
+        newNeed.embedding &&
+        existing.embedding.length > 0 &&
+        newNeed.embedding.length > 0
+      ) {
+        const sim = cosineSimilarity(newNeed.embedding, existing.embedding);
+        if (sim >= 0.75 && sim > highestSim) {
+          highestSim = sim;
+          bestMatch = existing;
+          shortestDist = dist;
+          isMatch = true;
+        }
+      }
+
+      // 2. Geo-Crisis Cluster Fallback: Same crisis category within 500m
+      if (!isMatch && existing.crisisType === newNeed.crisisType) {
+        if (dist < shortestDist) {
+          shortestDist = dist;
+          bestMatch = existing;
+        }
       }
     }
   }
@@ -73,27 +97,45 @@ export async function processDeduplication(newNeed: NeedEntity): Promise<NeedEnt
     // 3. vulnerability_index: 0-100 based on scale
     const vulnerability_index = Math.min(100, estimatedScale * 5); 
 
-    // Score = (report_velocity × 0.4) + (severity_weight × 0.4) + (vulnerability_index × 0.2)
-    const rawScore = (report_velocity * 0.4) + (severity_weight * 0.4) + (vulnerability_index * 0.2);
-    return Math.min(100, Math.max(0, rawScore));
+    // 4. Multi-reporter confirmation bonus: adds priority as independent citizens verify the disaster
+    const volumeBonus = Math.min(15, (reportCount - 1) * 4);
+
+    // Score = (report_velocity × 0.35) + (severity_weight × 0.35) + (vulnerability_index × 0.15) + volumeBonus
+    const rawScore = (report_velocity * 0.35) + (severity_weight * 0.35) + (vulnerability_index * 0.15) + volumeBonus;
+    return Math.min(100, Math.max(0, Math.round(rawScore)));
   };
 
   if (bestMatch) {
     const mergedReportCount = bestMatch.reportCount + 1;
-    const newCriticalityScore = computeScore(mergedReportCount, bestMatch.reportedAt, bestMatch.crisisType, Math.max(bestMatch.estimatedScale, newNeed.estimatedScale));
-    const hoursSinceFirstReport = Math.max((Date.now() - bestMatch.reportedAt) / (1000 * 60 * 60), 0.1);
+    const newCriticalityScore = computeScore(
+      mergedReportCount,
+      bestMatch.reportedAt,
+      bestMatch.crisisType,
+      Math.max(bestMatch.estimatedScale, newNeed.estimatedScale)
+    );
     const isCriticalVelocity = newCriticalityScore >= 80;
+
+    const clusterAction = `Additional distress signal clustered (${distToString(shortestDist)} away). Total reports: ${mergedReportCount}. Urgency elevated to ${newCriticalityScore}/100.`;
 
     const updatedNeed: NeedEntity = {
       ...bestMatch,
       reportCount: mergedReportCount,
       criticalityScore: newCriticalityScore,
       estimatedScale: Math.max(bestMatch.estimatedScale, newNeed.estimatedScale),
-      status: isCriticalVelocity ? 'CRITICAL_VELOCITY' : 'OPEN',
+      status: isCriticalVelocity && bestMatch.status === 'OPEN' ? 'CRITICAL_VELOCITY' : bestMatch.status,
       rawInputs: [...bestMatch.rawInputs, ...newNeed.rawInputs],
+      timeline: [
+        ...(bestMatch.timeline || []),
+        {
+          timestamp: Date.now(),
+          action: clusterAction,
+          actorRole: 'SYSTEM'
+        }
+      ]
     };
 
     await db.updateNeed(updatedNeed.id, updatedNeed);
+    console.log(`📍 Clustered Incident: Merged report into ticket #${updatedNeed.id.slice(0, 8)}. Total reports: ${mergedReportCount}, Score: ${newCriticalityScore}`);
     return updatedNeed;
   } else {
     // Brand new cluster

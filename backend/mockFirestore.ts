@@ -8,7 +8,57 @@ class MockFirestore {
   private adminAccounts: Map<string, AdminAccount> = new Map();
 
   constructor() {
-    // Clean initial state - no fake or dummy data seeded on startup
+    this.seedDefaultOrganizations();
+  }
+
+  private seedDefaultOrganizations() {
+    const defaultAccounts: AdminAccount[] = [
+      {
+        id: 'sdrf-official-01',
+        email: 'ops@sdrf.gov.in',
+        departmentCategory: 'DISASTER_MGMT',
+        departmentName: 'State Disaster Management Force (SDRF)',
+        stationName: 'State Emergency Operations Centre',
+        hqCoords: { lat: 26.9124, lng: 75.7873 },
+        radiusKm: 15,
+        createdAt: Date.now()
+      },
+      {
+        id: 'ndrf-official-02',
+        email: 'command@ndrf.gov.in',
+        departmentCategory: 'DISASTER_MGMT',
+        departmentName: 'National Disaster Response Force (NDRF Auxiliary)',
+        stationName: 'Regional Response Centre',
+        hqCoords: { lat: 28.6139, lng: 77.2090 },
+        radiusKm: 15,
+        createdAt: Date.now()
+      },
+      {
+        id: 'fire-official-03',
+        email: 'dispatch@fireservice.gov.in',
+        departmentCategory: 'FIRE_DEPT',
+        departmentName: 'City Fire & Emergency Rescue Service',
+        stationName: 'Central Fire Station 1',
+        hqCoords: { lat: 26.9124, lng: 75.7873 },
+        radiusKm: 15,
+        createdAt: Date.now()
+      },
+      {
+        id: 'redcross-official-04',
+        email: 'relief@redcross.org.in',
+        departmentCategory: 'NGO',
+        departmentName: 'Red Cross Disaster Relief Team',
+        stationName: 'Jaipur Division',
+        hqCoords: { lat: 26.9124, lng: 75.7873 },
+        radiusKm: 15,
+        ngoCode: 'REDCX',
+        createdAt: Date.now()
+      }
+    ];
+
+    for (const acc of defaultAccounts) {
+      this.adminAccounts.set(acc.id, acc);
+    }
   }
 
   private seedNeeds() {
