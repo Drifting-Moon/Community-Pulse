@@ -127,6 +127,13 @@ export default function VolunteerApp() {
   const [isGpsLoading, setIsGpsLoading] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
+  // Volunteer Authentication state
+  const [authTab, setAuthTab] = useState<'signin' | 'register'>('signin');
+  const [authEmail, setAuthEmail] = useState<string>('');
+  const [authPassword, setAuthPassword] = useState<string>('');
+  const [authError, setAuthError] = useState<string>('');
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(false);
+
   const [needs, setNeeds] = useState<NeedEntity[]>([]);
   const [sosAlerts, setSosAlerts] = useState<SosAlertEvent[]>([]);
   const [activeToastAlert, setActiveToastAlert] = useState<SosAlertEvent | null>(null);
@@ -212,9 +219,47 @@ export default function VolunteerApp() {
     );
   };
 
+  const handleVolunteerSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError('');
+    if (!authEmail.trim() || !authPassword.trim()) {
+      setAuthError('Please enter both Email ID and Password.');
+      return;
+    }
+
+    setIsAuthLoading(true);
+    try {
+      const res = await axios.post(`${API_BASE}/api/volunteers/auth/login`, {
+        email: authEmail.trim().toLowerCase(),
+        password: authPassword.trim()
+      });
+      const vol = res.data.volunteer;
+      saveVolunteer(vol);
+      setShowRegisterModal(false);
+      setAuthPassword('');
+      playEmergencyChime();
+    } catch (err: any) {
+      const msg = err.response?.data?.error || 'Invalid credentials. Please verify your Email ID and Password.';
+      setAuthError(msg);
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
   const handleRegister = async () => {
+    setAuthError('');
+    if (!authEmail.trim()) {
+      setAuthError('Please enter your Email ID.');
+      setRegStep(1);
+      return;
+    }
+    if (!authPassword.trim() || authPassword.trim().length < 6) {
+      setAuthError('Password must be at least 6 characters.');
+      setRegStep(1);
+      return;
+    }
     if (!regName.trim()) {
-      alert('Please enter your full name.');
+      setAuthError('Please enter your full name.');
       setRegStep(1);
       return;
     }
@@ -224,6 +269,8 @@ export default function VolunteerApp() {
       const cleanCode = regNgoCode.trim() ? regNgoCode.trim().toUpperCase() : undefined;
       const payload = {
         name: regName.trim(),
+        email: authEmail.trim().toLowerCase(),
+        password: authPassword.trim(),
         ngo: regNgo.trim(),
         ngoCode: cleanCode,
         phone: regPhone.trim() || undefined,
@@ -233,34 +280,30 @@ export default function VolunteerApp() {
         locationName: regLocationName || 'Custom Station'
       };
 
-      const res = await axios.post(`${API_BASE}/volunteers`, payload);
+      const res = await axios.post(`${API_BASE}/api/volunteers/auth/register`, payload);
       const newVol = res.data.volunteer;
       saveVolunteer(newVol);
       setShowRegisterModal(false);
+      setAuthPassword('');
       setIsSubmitting(false);
       playEmergencyChime();
-    } catch {
-      const cleanCode = regNgoCode.trim() ? regNgoCode.trim().toUpperCase() : undefined;
-      const fallbackVol: VolunteerProfile = {
-        id: crypto.randomUUID(),
-        name: regName.trim(),
-        ngo: regNgo.trim(),
-        ngoCode: cleanCode,
-        phone: regPhone.trim() || undefined,
-        preferredLanguage: regLanguage,
-        skills: regSkills.length > 0 ? regSkills : ['medical'],
-        locationCoords: { lat: regLat, lng: regLng },
-        locationName: regLocationName || 'Custom Station',
-        reliabilityRate: 1.0,
-        status: 'AVAILABLE',
-        hoursLast30Days: 0,
-        pastContributions: [],
-        registeredAt: Date.now()
-      };
-      saveVolunteer(fallbackVol);
-      setShowRegisterModal(false);
+    } catch (err: any) {
+      const msg = err.response?.data?.error || 'Registration failed. Email may already be in use.';
+      setAuthError(msg);
       setIsSubmitting(false);
     }
+  };
+
+  const handleVolunteerLogout = () => {
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {}
+    setVolunteer(null);
+    setAuthEmail('');
+    setAuthPassword('');
+    setAuthError('');
+    setAuthTab('signin');
+    setShowRegisterModal(true);
   };
 
   const handleUpdateLocation = async (lat: number, lng: number, name: string) => {
@@ -631,12 +674,11 @@ export default function VolunteerApp() {
                   <button
                     onClick={() => {
                       setShowAccountMenu(false);
-                      localStorage.removeItem(STORAGE_KEY);
-                      setVolunteer(null);
+                      handleVolunteerLogout();
                     }}
-                    className="w-full text-left px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg border-t border-gray-100 mt-1"
+                    className="w-full text-left px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg border-t border-gray-100 mt-1 cursor-pointer font-medium"
                   >
-                    Clear profile & sign out
+                    Sign out
                   </button>
                 </div>
               )}
@@ -929,126 +971,242 @@ export default function VolunteerApp() {
         </div>
       )}
 
-      {/* 3-STEP REGISTRATION MODAL (max-w-[560px] centered, light theme) */}
+      {/* VOLUNTEER AUTHENTICATION MODAL (max-w-[560px] centered) */}
       {showRegisterModal && (
-        <div className="fixed inset-0 z-[2000] bg-black/40 flex items-center justify-center p-4">
-          <div className="bg-white border border-gray-200 rounded-2xl max-w-[560px] w-full p-6 shadow-xl space-y-4">
+        <div className="fixed inset-0 z-[2000] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white border border-gray-200 rounded-2xl max-w-[560px] w-full p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
+            {/* Header */}
             <div className="flex items-center justify-between border-b border-gray-100 pb-3">
               <div>
-                <span className="text-[13px] text-gray-500 font-medium">Step {regStep} of 3</span>
-                <h2 className="text-[20px] font-semibold text-gray-900 mt-0.5">
-                  {regStep === 1 && 'Personal details'}
-                  {regStep === 2 && 'Emergency capabilities'}
-                  {regStep === 3 && 'Station location'}
+                <h2 className="text-[20px] font-semibold text-gray-900">
+                  Field Responder Access
                 </h2>
+                <p className="text-[13px] text-gray-500 mt-0.5">
+                  Verified emergency responder network authentication.
+                </p>
               </div>
               {volunteer && (
                 <button
                   onClick={() => setShowRegisterModal(false)}
-                  className="text-gray-400 hover:text-gray-600 p-1"
+                  className="text-gray-400 hover:text-gray-600 p-1 cursor-pointer"
                 >
                   <XMarkIcon className="w-5 h-5" />
                 </button>
               )}
             </div>
 
-            <p className="text-[13px] text-gray-500">
-              Join the verified emergency responder network.
-            </p>
+            {/* Mode Tabs: Sign In | Register */}
+            <div className="flex border-b border-gray-200 text-[13px] font-semibold">
+              <button
+                type="button"
+                onClick={() => { setAuthTab('signin'); setAuthError(''); }}
+                className={`flex-1 py-2.5 text-center transition-colors border-b-2 cursor-pointer ${
+                  authTab === 'signin' ? 'border-gray-900 text-gray-900 font-bold' : 'border-transparent text-gray-500 hover:text-gray-900'
+                }`}
+              >
+                Sign In
+              </button>
+              <button
+                type="button"
+                onClick={() => { setAuthTab('register'); setAuthError(''); }}
+                className={`flex-1 py-2.5 text-center transition-colors border-b-2 cursor-pointer ${
+                  authTab === 'register' ? 'border-gray-900 text-gray-900 font-bold' : 'border-transparent text-gray-500 hover:text-gray-900'
+                }`}
+              >
+                Register as Volunteer
+              </button>
+            </div>
 
-            {/* STEP 1: You */}
-            {regStep === 1 && (
-              <div className="space-y-4 text-[13px]">
-                <div>
-                  <label className="block text-gray-700 font-medium mb-1">Full name *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Enter full name"
-                    value={regName}
-                    onChange={(e) => setRegName(e.target.value)}
-                    className="w-full h-10 bg-white border border-gray-300 rounded-lg px-3 text-gray-900 focus:outline-none focus:border-gray-900"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-gray-700 font-medium mb-1">Organization *</label>
-                  <select
-                    value={regNgo}
-                    onChange={(e) => setRegNgo(e.target.value)}
-                    className="w-full h-10 bg-white border border-gray-300 rounded-lg px-3 text-gray-900 focus:outline-none focus:border-gray-900"
-                  >
-                    <option value="Red Cross Society India">Red Cross Society India</option>
-                    <option value="Goonj Relief Force">Goonj Relief Force</option>
-                    <option value="SEEDS India Disaster Response">SEEDS India Disaster Response</option>
-                    <option value="NDRF Auxiliary Volunteers">NDRF Auxiliary Volunteers</option>
-                    <option value="Doctors Without Borders">Doctors Without Borders</option>
-                    <option value="Civil Defense Corps">Civil Defense Corps</option>
-                    <option value="Independent Civic Responder">Independent Civic Responder</option>
-                  </select>
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-gray-700 font-medium">NGO Team Code</label>
-                    <span className="text-[11px] text-gray-400">Optional • 5 Letters</span>
-                  </div>
-                  <input
-                    type="text"
-                    maxLength={5}
-                    placeholder="e.g. ASDCG"
-                    value={regNgoCode}
-                    onChange={(e) => setRegNgoCode(e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))}
-                    className="w-full h-10 bg-white border border-gray-300 rounded-lg px-3 text-gray-900 uppercase font-mono tracking-wider focus:outline-none focus:border-gray-900 placeholder:normal-case placeholder:font-sans placeholder:tracking-normal text-[14px]"
-                  />
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    If your NGO provided a 5-letter team code, enter it so your response unit links to your admin.
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-gray-700 font-medium mb-1">Phone number</label>
-                  <input
-                    type="tel"
-                    placeholder="+91 98765 43210"
-                    value={regPhone}
-                    onChange={(e) => setRegPhone(e.target.value)}
-                    className="w-full h-10 bg-white border border-gray-300 rounded-lg px-3 text-gray-900 focus:outline-none focus:border-gray-900 tabular-nums"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-gray-700 font-medium mb-1">Preferred language</label>
-                  <select
-                    value={regLanguage}
-                    onChange={(e) => setRegLanguage(e.target.value)}
-                    className="w-full h-10 bg-white border border-gray-300 rounded-lg px-3 text-gray-900 focus:outline-none focus:border-gray-900"
-                  >
-                    {LANGUAGES.map((l) => (
-                      <option key={l} value={l}>
-                        {l}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="pt-2 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!regName.trim()) {
-                        alert('Please enter your full name.');
-                        return;
-                      }
-                      setRegStep(2);
-                    }}
-                    className="h-10 px-5 bg-gray-900 hover:bg-black text-white font-medium rounded-lg text-[13px] transition-colors"
-                  >
-                    Continue to skills
-                  </button>
-                </div>
+            {/* Error Alert */}
+            {authError && (
+              <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-[12px] flex items-center gap-2">
+                <span>⚠️</span>
+                <span>{authError}</span>
               </div>
             )}
+
+            {/* TAB 1: SIGN IN */}
+            {authTab === 'signin' ? (
+              <form onSubmit={handleVolunteerSignIn} className="space-y-4 text-[13px] pt-1">
+                <div>
+                  <label className="block text-gray-700 font-medium mb-1">
+                    Email ID *
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    value={authEmail}
+                    onChange={(e) => setAuthEmail(e.target.value)}
+                    placeholder="volunteer@agency.org"
+                    className="w-full h-10 bg-white border border-gray-300 rounded-lg px-3 text-gray-900 text-[14px] focus:outline-none focus:border-gray-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-gray-700 font-medium mb-1">
+                    Password *
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    value={authPassword}
+                    onChange={(e) => setAuthPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full h-10 bg-white border border-gray-300 rounded-lg px-3 text-gray-900 text-[14px] focus:outline-none focus:border-gray-900"
+                  />
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    type="submit"
+                    disabled={isAuthLoading}
+                    className="w-full h-11 bg-gray-900 hover:bg-black text-white font-medium rounded-xl text-[14px] transition-colors shadow-sm cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {isAuthLoading ? 'Authenticating...' : 'Sign In as Volunteer →'}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              /* TAB 2: REGISTER MULTI-STEP */
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-[13px] text-gray-500 font-medium">Step {regStep} of 3</span>
+                  <span className="text-[13px] font-semibold text-gray-900">
+                    {regStep === 1 && 'Personal Credentials'}
+                    {regStep === 2 && 'Emergency Capabilities'}
+                    {regStep === 3 && 'Station Location'}
+                  </span>
+                </div>
+
+                {/* STEP 1: You & Credentials */}
+                {regStep === 1 && (
+                  <div className="space-y-3 text-[13px]">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-gray-700 font-medium mb-1">Email ID (Unique) *</label>
+                        <input
+                          type="email"
+                          required
+                          placeholder="volunteer@domain.com"
+                          value={authEmail}
+                          onChange={(e) => setAuthEmail(e.target.value)}
+                          className="w-full h-10 bg-white border border-gray-300 rounded-lg px-3 text-gray-900 focus:outline-none focus:border-gray-900"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-gray-700 font-medium mb-1">Password (min 6 chars) *</label>
+                        <input
+                          type="password"
+                          required
+                          minLength={6}
+                          placeholder="••••••••"
+                          value={authPassword}
+                          onChange={(e) => setAuthPassword(e.target.value)}
+                          className="w-full h-10 bg-white border border-gray-300 rounded-lg px-3 text-gray-900 focus:outline-none focus:border-gray-900"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-gray-700 font-medium mb-1">Full name *</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. Anjali Sharma"
+                        value={regName}
+                        onChange={(e) => setRegName(e.target.value)}
+                        className="w-full h-10 bg-white border border-gray-300 rounded-lg px-3 text-gray-900 focus:outline-none focus:border-gray-900"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-gray-700 font-medium mb-1">Organization *</label>
+                      <select
+                        value={regNgo}
+                        onChange={(e) => setRegNgo(e.target.value)}
+                        className="w-full h-10 bg-white border border-gray-300 rounded-lg px-3 text-gray-900 focus:outline-none focus:border-gray-900"
+                      >
+                        <option value="Red Cross Society India">Red Cross Society India</option>
+                        <option value="Goonj Relief Force">Goonj Relief Force</option>
+                        <option value="SEEDS India Disaster Response">SEEDS India Disaster Response</option>
+                        <option value="NDRF Auxiliary Volunteers">NDRF Auxiliary Volunteers</option>
+                        <option value="Doctors Without Borders">Doctors Without Borders</option>
+                        <option value="Civil Defense Corps">Civil Defense Corps</option>
+                        <option value="Independent Civic Responder">Independent Civic Responder</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-gray-700 font-medium">NGO Team Code</label>
+                        <span className="text-[11px] text-gray-500 font-medium">Optional • 5 Letters</span>
+                      </div>
+                      <input
+                        type="text"
+                        maxLength={5}
+                        placeholder="e.g. ASDCG"
+                        value={regNgoCode}
+                        onChange={(e) => setRegNgoCode(e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))}
+                        className="w-full h-10 bg-white border border-gray-300 rounded-lg px-3 text-gray-900 uppercase font-mono tracking-wider focus:outline-none focus:border-gray-900 placeholder:normal-case placeholder:font-sans placeholder:tracking-normal text-[14px]"
+                      />
+                      <p className="text-[11px] text-gray-500 mt-1">
+                        If your NGO provided a 5-letter team code, enter it so your response unit links to your admin.
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-gray-700 font-medium mb-1">Phone number</label>
+                      <input
+                        type="tel"
+                        placeholder="+91 98765 43210"
+                        value={regPhone}
+                        onChange={(e) => setRegPhone(e.target.value)}
+                        className="w-full h-10 bg-white border border-gray-300 rounded-lg px-3 text-gray-900 focus:outline-none focus:border-gray-900 tabular-nums"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-gray-700 font-medium mb-1">Preferred language</label>
+                      <select
+                        value={regLanguage}
+                        onChange={(e) => setRegLanguage(e.target.value)}
+                        className="w-full h-10 bg-white border border-gray-300 rounded-lg px-3 text-gray-900 focus:outline-none focus:border-gray-900"
+                      >
+                        {LANGUAGES.map((l) => (
+                          <option key={l} value={l}>
+                            {l}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="pt-2 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAuthError('');
+                          if (!authEmail.trim()) {
+                            setAuthError('Please enter your Email ID.');
+                            return;
+                          }
+                          if (!authPassword.trim() || authPassword.trim().length < 6) {
+                            setAuthError('Password must be at least 6 characters.');
+                            return;
+                          }
+                          if (!regName.trim()) {
+                            setAuthError('Please enter your full name.');
+                            return;
+                          }
+                          setRegStep(2);
+                        }}
+                        className="h-10 px-5 bg-gray-900 hover:bg-black text-white font-medium rounded-lg text-[13px] transition-colors cursor-pointer"
+                      >
+                        Continue to skills →
+                      </button>
+                    </div>
+                  </div>
+                )}
 
             {/* STEP 2: Skills */}
             {regStep === 2 && (
@@ -1170,8 +1328,10 @@ export default function VolunteerApp() {
               </div>
             )}
           </div>
-        </div>
-      )}
+        )}
+      </div>
+    </div>
+  )}
 
       {/* CHANGE LOCATION MODAL */}
       {showLocationModal && volunteer && (

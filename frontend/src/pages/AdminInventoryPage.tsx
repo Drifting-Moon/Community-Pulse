@@ -10,7 +10,7 @@ import type { ReliefSupply } from '../types';
 
 const STORAGE_KEY = 'naturalpulse_admin_supplies';
 
-const DEFAULT_SUPPLIES: ReliefSupply[] = [
+const INITIAL_RELIEF_SUPPLIES: ReliefSupply[] = [
   {
     id: 'sup-1',
     name: 'Packaged Drinking Water (20L Jerrycans)',
@@ -55,24 +55,6 @@ const DEFAULT_SUPPLIES: ReliefSupply[] = [
     unit: 'Tents',
     depotName: 'South Zone Logistics Hub',
     depotCoords: { lat: 28.5355, lng: 77.2410 }
-  },
-  {
-    id: 'sup-6',
-    name: 'Sterile Surgical Bandages & Antiseptics',
-    category: 'medical',
-    quantity: 850,
-    unit: 'Packs',
-    depotName: 'Civil Lines Emergency Store',
-    depotCoords: { lat: 28.6750, lng: 77.2250 }
-  },
-  {
-    id: 'sup-7',
-    name: 'Emergency Water Purification Tablets (10,000L)',
-    category: 'water',
-    quantity: 600,
-    unit: 'Boxes',
-    depotName: 'Central Regional Relief Depot',
-    depotCoords: { lat: 28.6139, lng: 77.2090 }
   }
 ];
 
@@ -84,9 +66,9 @@ export default function AdminInventoryPage() {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
-      return DEFAULT_SUPPLIES;
+      return INITIAL_RELIEF_SUPPLIES;
     } catch {
-      return DEFAULT_SUPPLIES;
+      return INITIAL_RELIEF_SUPPLIES;
     }
   });
 
@@ -117,6 +99,10 @@ export default function AdminInventoryPage() {
     setSupplies((prev) =>
       prev.map((s) => (s.id === id ? { ...s, quantity: s.quantity + amount } : s))
     );
+  };
+
+  const handleDeleteSupply = (id: string) => {
+    setSupplies((prev) => prev.filter((s) => s.id !== id));
   };
 
   const handleAddSupply = (e: React.FormEvent) => {
@@ -328,22 +314,30 @@ export default function AdminInventoryPage() {
                       </div>
                     </td>
 
-                    {/* Restock: two ghost buttons "+50" "+250" (1px border, same neutral style, no blue) */}
+                    {/* Restock & Delete Actions */}
                     <td className="px-4 text-right">
                       <div className="inline-flex items-center gap-1.5">
                         <button
                           type="button"
                           onClick={() => handleRestock(item.id, 50)}
-                          className="h-7 px-2.5 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-white text-[13px] rounded-[6px] transition-colors tabular-nums"
+                          className="h-7 px-2.5 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-white text-[13px] rounded-[6px] transition-colors tabular-nums cursor-pointer"
                         >
                           +50
                         </button>
                         <button
                           type="button"
                           onClick={() => handleRestock(item.id, 250)}
-                          className="h-7 px-2.5 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-white text-[13px] rounded-[6px] transition-colors tabular-nums"
+                          className="h-7 px-2.5 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-white text-[13px] rounded-[6px] transition-colors tabular-nums cursor-pointer"
                         >
                           +250
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteSupply(item.id)}
+                          className="h-7 px-2 bg-[#141416] hover:bg-red-950/40 border border-[#26262A] hover:border-red-500/40 text-[#8B8B94] hover:text-red-400 text-[12px] rounded-[6px] transition-colors cursor-pointer"
+                          title="Remove item"
+                        >
+                          ✕
                         </button>
                       </div>
                     </td>

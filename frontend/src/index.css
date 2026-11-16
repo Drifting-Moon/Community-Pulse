@@ -114,6 +114,18 @@ html:not([data-theme="dark"]) {
     color: #18181B !important;
   }
 
+  /* Form inputs in Light / White mode: High contrast dark text, no camouflage */
+  input, select, textarea,
+  input.text-white, select.text-white, textarea.text-white {
+    color: #111827 !important;
+    background-color: #FFFFFF !important;
+    border-color: #D1D5DB !important;
+  }
+
+  input::placeholder, textarea::placeholder {
+    color: #9CA3AF !important;
+  }
+
   /* Admin Nav Active Indicator */
   aside nav a.bg-\[\#1A1A1D\] {
     background-color: #F4F4F5 !important;
@@ -160,10 +172,15 @@ html[data-theme="dark"],
   .text-gray-400 { color: #71717A !important; }
 
   /* Inputs in dark mode */
-  input, textarea, select {
+  input, textarea, select,
+  input.text-gray-900, textarea.text-gray-900, select.text-gray-900 {
     background-color: #141416 !important;
     color: #F2F2F3 !important;
     border-color: #26262A !important;
+  }
+
+  input::placeholder, textarea::placeholder {
+    color: #71717A !important;
   }
 
   /* Modals in dark mode */

@@ -163,6 +163,17 @@ class FirebaseDb {
     }
   }
 
+  async getVolunteerByEmail(email: string): Promise<VolunteerProfile | null> {
+    if (useMock || !firestore) return mockDb.getVolunteerByEmail(email);
+    try {
+      const snap = await firestore.collection('volunteers').where('email', '==', email.trim().toLowerCase()).limit(1).get();
+      return snap.empty ? null : (snap.docs[0].data() as VolunteerProfile);
+    } catch {
+      useMock = true;
+      return mockDb.getVolunteerByEmail(email);
+    }
+  }
+
   async clearAllVolunteers(): Promise<void> {
     if (useMock || !firestore) return mockDb.clearAllVolunteers();
     try {

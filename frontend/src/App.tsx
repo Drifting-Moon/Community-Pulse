@@ -724,7 +724,16 @@ export default function App() {
     setLoadingDispatch(true);
     try {
       const topAvailable = scopedVolunteers.find((v) => v.status === 'AVAILABLE');
-      const payload: any = { needId };
+      const deptTag = adminAccount
+        ? `${adminAccount.departmentName} (${adminAccount.stationName})`
+        : 'Emergency Response Command';
+      const payload: any = {
+        needId,
+        respondingParty: topAvailable
+          ? `${topAvailable.name} (${topAvailable.ngo || adminAccount?.departmentName || 'Rescue Unit'})`
+          : deptTag,
+        departmentName: deptTag
+      };
       if (topAvailable) {
         payload.volunteerId = topAvailable.id;
       }
@@ -1536,24 +1545,11 @@ export default function App() {
                                 )}
                               </div>
 
-                              {/* AI Confidence & Reasoning */}
-                              <div className="p-3 bg-[#0E0E10] border border-[#26262A] rounded-[8px] space-y-1">
-                                <div className="flex items-center justify-between text-[#8B8B94] text-[11px]">
-                                  <span>AI Analysis</span>
-                                  <span className="tabular-nums">
-                                    {(selectedNeed.confidenceScore ? selectedNeed.confidenceScore * 100 : 88).toFixed(0)}% confidence
-                                  </span>
-                                </div>
-                                <p className="text-white text-[13px] leading-relaxed">
-                                  {selectedNeed.urgencyReasoning}
-                                </p>
-                              </div>
-
                               {/* Description */}
                               <div>
-                                <span className="text-[#8B8B94] text-[11px] block mb-1">Description</span>
+                                <span className="text-[#8B8B94] text-[11px] block mb-1">Incident Report Details</span>
                                 <p className="text-[#F2F2F3] text-[13px] leading-relaxed">
-                                  {selectedNeed.urgencyReasoning || 'No additional narrative text provided.'}
+                                  {selectedNeed.urgencyReasoning || 'Citizen distress call recorded.'}
                                 </p>
                               </div>
 
@@ -1654,25 +1650,35 @@ export default function App() {
                                     <button
                                       type="button"
                                       onClick={() => handleVerify(selectedNeed.id, 'VERIFIED')}
-                                      className="flex-1 h-10 bg-white hover:bg-zinc-200 text-black font-semibold rounded-[8px] text-[13px] transition-colors"
+                                      className="flex-1 h-10 bg-white hover:bg-zinc-200 text-black font-semibold rounded-[8px] text-[13px] transition-colors cursor-pointer"
                                     >
                                       Verify incident
                                     </button>
                                     <button
                                       type="button"
                                       onClick={() => handleVerify(selectedNeed.id, 'REJECTED_SPAM')}
-                                      className="h-10 px-4 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-[#8B8B94] hover:text-white rounded-[8px] text-[13px] transition-colors"
+                                      className="h-10 px-4 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-[#8B8B94] hover:text-white rounded-[8px] text-[13px] transition-colors cursor-pointer"
                                     >
                                       Reject as false alarm
                                     </button>
                                   </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleEscalate(selectedNeed.id)}
-                                    className="w-full h-9 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 font-semibold rounded-[8px] text-[12px] transition-colors flex items-center justify-center gap-1.5"
-                                  >
-                                    🚨 Escalate to 112 / NDRF (High-Risk Hazard)
-                                  </button>
+                                  <div className="flex gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDispatch(selectedNeed.id)}
+                                      disabled={loadingDispatch}
+                                      className="flex-1 h-10 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-[8px] text-[13px] transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                    >
+                                      🚀 {loadingDispatch ? 'Dispatching Support...' : 'Dispatch Support Unit'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleEscalate(selectedNeed.id)}
+                                      className="h-10 px-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 font-semibold rounded-[8px] text-[12px] transition-colors flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+                                    >
+                                      🚨 Escalate 112
+                                    </button>
+                                  </div>
                                 </div>
                               )}
 
@@ -1688,22 +1694,24 @@ export default function App() {
                               )}
 
                               {selectedNeed.status === 'VERIFIED' && (
-                                <div className="flex gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDispatch(selectedNeed.id)}
-                                    disabled={loadingDispatch}
-                                    className="flex-1 h-10 bg-white hover:bg-zinc-200 text-black font-semibold rounded-[8px] text-[13px] transition-colors disabled:opacity-50"
-                                  >
-                                    {loadingDispatch ? 'Dispatching...' : 'Dispatch automatically'}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => navigate('/admin/volunteers')}
-                                    className="h-10 px-4 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-white rounded-[8px] text-[13px] transition-colors"
-                                  >
-                                    Choose volunteer
-                                  </button>
+                                <div className="space-y-2">
+                                  <div className="flex gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDispatch(selectedNeed.id)}
+                                      disabled={loadingDispatch}
+                                      className="flex-1 h-10 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-[8px] text-[13px] transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-950/50"
+                                    >
+                                      🚀 {loadingDispatch ? 'Dispatching Support...' : 'Dispatch Support Unit'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => navigate('/admin/volunteers')}
+                                      className="h-10 px-4 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-white rounded-[8px] text-[13px] transition-colors cursor-pointer"
+                                    >
+                                      Choose volunteer
+                                    </button>
+                                  </div>
                                 </div>
                               )}
 
@@ -1712,14 +1720,14 @@ export default function App() {
                                   <button
                                     type="button"
                                     onClick={() => navigate('/admin/volunteers')}
-                                    className="flex-1 h-10 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-white rounded-[8px] text-[13px] transition-colors"
+                                    className="flex-1 h-10 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-white rounded-[8px] text-[13px] transition-colors cursor-pointer"
                                   >
                                     View responder
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => handleResolve(selectedNeed.id)}
-                                    className="h-10 px-4 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-white rounded-[8px] text-[13px] transition-colors"
+                                    className="h-10 px-4 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-white rounded-[8px] text-[13px] transition-colors cursor-pointer"
                                   >
                                     Mark resolved
                                   </button>
