@@ -259,6 +259,27 @@ app.post('/volunteers', async (req, res) => {
 
     const cleanNgoCode = ngoCode && typeof ngoCode === 'string' ? ngoCode.trim().toUpperCase() : undefined;
 
+    // Check if volunteer with email already exists to prevent duplication
+    if (email && email.trim()) {
+      const existing = await db.getVolunteerByEmail(email.trim());
+      if (existing) {
+        const updated = await db.updateVolunteer(existing.id, {
+          name: name.trim(),
+          ngo: ngo && ngo.trim() ? ngo.trim() : existing.ngo,
+          ngoCode: cleanNgoCode !== undefined ? cleanNgoCode : existing.ngoCode,
+          phone: phone ? phone.trim() : existing.phone,
+          preferredLanguage: preferredLanguage || existing.preferredLanguage,
+          skills: Array.isArray(skills) && skills.length > 0 ? skills : existing.skills,
+          locationCoords: {
+            lat: Number(locationCoords.lat),
+            lng: Number(locationCoords.lng)
+          },
+          locationName: locationName || existing.locationName
+        });
+        return res.status(200).json({ success: true, volunteer: updated || existing, message: 'Existing volunteer record updated' });
+      }
+    }
+
     const newVolunteer: VolunteerProfile = {
       id: crypto.randomUUID(),
       name: name.trim(),
@@ -394,7 +415,11 @@ const handleRegisterAdmin = async (req: express.Request, res: express.Response) 
 
     let ngoCode: string | undefined = undefined;
     if (departmentCategory === 'NGO') {
-      ngoCode = db.generateUnique5LetterCode();
+      if (req.body.ngoCode && typeof req.body.ngoCode === 'string' && req.body.ngoCode.trim().length === 5) {
+        ngoCode = req.body.ngoCode.trim().toUpperCase();
+      } else {
+        ngoCode = db.generateUnique5LetterCode();
+      }
     }
 
     const defaultCoords = hqCoords && typeof hqCoords.lat === 'number' && typeof hqCoords.lng === 'number'
@@ -460,6 +485,94 @@ app.post('/admin/auth/register', handleRegisterAdmin);
 app.post('/api/admin/auth/register', handleRegisterAdmin);
 app.post('/admin/auth/login', handleLoginAdmin);
 app.post('/api/admin/auth/login', handleLoginAdmin);
+
+// --- Volunteer Authentication & Session Management ---
+const handleRegisterVolunteer = async (req: express.Request, res: express.Response) => {
+  try {
+    const { name, email, password, ngo, ngoCode, phone, preferredLanguage, skills, locationCoords, locationName } = req.body;
+
+    if (!email || !email.trim()) {
+      return res.status(400).json({ error: 'Email ID is required for volunteer registration.' });
+    }
+    const cleanEmail = email.trim().toLowerCase();
+    if (!password || password.trim().length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters long.' });
+    }
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: 'Volunteer name is required.' });
+    }
+
+    // Enforce unique email check across volunteers
+    const existing = await db.getVolunteerByEmail(cleanEmail);
+    if (existing) {
+      return res.status(409).json({ error: 'A volunteer account with this Email ID already exists. Please sign in instead.' });
+    }
+
+    const cleanNgoCode = ngoCode && typeof ngoCode === 'string' ? ngoCode.trim().toUpperCase() : undefined;
+    const coords = locationCoords && typeof locationCoords.lat === 'number' && typeof locationCoords.lng === 'number'
+      ? { lat: Number(locationCoords.lat), lng: Number(locationCoords.lng) }
+      : { lat: 28.6139, lng: 77.2090 };
+
+    const newVolunteer: VolunteerProfile = {
+      id: crypto.randomUUID(),
+      name: name.trim(),
+      email: cleanEmail,
+      password: password.trim(),
+      ngo: ngo && ngo.trim() ? ngo.trim() : 'Independent Civic Responder',
+      ngoCode: cleanNgoCode,
+      phone: phone ? phone.trim() : undefined,
+      preferredLanguage: preferredLanguage || 'English',
+      skills: Array.isArray(skills) && skills.length > 0 ? skills : ['medical', 'first_aid'],
+      locationCoords: coords,
+      locationName: locationName || 'Local Station',
+      reliabilityRate: 0.95,
+      status: 'AVAILABLE',
+      hoursLast30Days: 0,
+      pastContributions: ['Registered responder in CommunityPulse verified network'],
+      registeredAt: Date.now()
+    };
+
+    await db.addVolunteer(newVolunteer);
+    console.log(`🛡️ Volunteer Registered: ${newVolunteer.name} (${newVolunteer.email}) [NGO: ${newVolunteer.ngo}${cleanNgoCode ? ' Code:' + cleanNgoCode : ''}]`);
+
+    const { password: _, ...safeProfile } = newVolunteer;
+    res.status(201).json({ success: true, volunteer: safeProfile });
+  } catch (error) {
+    console.error('Failed to register volunteer:', error);
+    res.status(500).json({ error: 'Failed to register volunteer' });
+  }
+};
+
+const handleLoginVolunteer = async (req: express.Request, res: express.Response) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Please enter both Email ID and Password.' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const volunteer = await db.getVolunteerByEmail(cleanEmail);
+    if (!volunteer) {
+      return res.status(401).json({ error: 'No volunteer found with this Email ID. Please register.' });
+    }
+
+    if (volunteer.password && volunteer.password !== password.trim()) {
+      return res.status(401).json({ error: 'Invalid password. Please verify your credentials.' });
+    }
+
+    console.log(`🔑 Volunteer Signed In: ${volunteer.name} (${volunteer.email})`);
+    const { password: _, ...safeProfile } = volunteer;
+    res.json({ success: true, volunteer: safeProfile });
+  } catch (error) {
+    console.error('Failed to authenticate volunteer:', error);
+    res.status(500).json({ error: 'Login failed' });
+  }
+};
+
+app.post('/volunteers/auth/register', handleRegisterVolunteer);
+app.post('/api/volunteers/auth/register', handleRegisterVolunteer);
+app.post('/volunteers/auth/login', handleLoginVolunteer);
+app.post('/api/volunteers/auth/login', handleLoginVolunteer);
 
 app.get(['/admin/auth/accounts', '/api/admin/auth/accounts'], async (req, res) => {
   try {
@@ -661,7 +774,30 @@ app.post('/dispatch', async (req, res) => {
       }
 
       if (eligibleVolunteers.length === 0) {
-        return res.status(404).json({ error: 'No volunteers available for dispatch.' });
+        if (req.body.respondingParty || req.body.departmentName) {
+          const dept = (req.body.respondingParty || req.body.departmentName).trim();
+          const updates: Partial<NeedEntity> = {
+            status: 'EN_ROUTE',
+            respondingParty: dept,
+            responseStatus: 'RESPONDING',
+            timeline: [
+              ...(need.timeline || []),
+              {
+                timestamp: Date.now(),
+                action: `Official response support dispatched by ${dept}`,
+                actorRole: 'ADMIN' as const
+              }
+            ]
+          };
+          await db.updateNeed(need.id, updates);
+          console.log(`🚀 Department Dispatch Executed: ${dept} dispatched to ${need.location.name}. Need status: EN_ROUTE`);
+          return res.json({
+            success: true,
+            respondingParty: dept,
+            need: { ...need, ...updates }
+          });
+        }
+        return res.status(404).json({ error: 'No response units available for dispatch.' });
       }
 
       const scoredVolunteers = eligibleVolunteers.map(v => {
@@ -718,7 +854,9 @@ app.post('/dispatch', async (req, res) => {
       }
     ];
 
-    const respondingParty = topVolunteer.ngo && topVolunteer.ngo !== 'Independent Civic Responder'
+    const respondingParty = req.body.respondingParty
+      ? req.body.respondingParty.trim()
+      : topVolunteer.ngo && topVolunteer.ngo !== 'Independent Civic Responder'
       ? `${topVolunteer.name} (${topVolunteer.ngo})`
       : topVolunteer.name;
 

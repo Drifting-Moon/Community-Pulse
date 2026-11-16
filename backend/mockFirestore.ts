@@ -96,6 +96,16 @@ class MockFirestore {
     return this.volunteers.get(id) || null;
   }
 
+  async getVolunteerByEmail(email: string): Promise<VolunteerProfile | null> {
+    const clean = email.trim().toLowerCase();
+    for (const v of this.volunteers.values()) {
+      if (v.email && v.email.trim().toLowerCase() === clean) {
+        return v;
+      }
+    }
+    return null;
+  }
+
   // --- Requirements for Admin Accounts & 5-letter NGO Codes ---
   generateUnique5LetterCode(): string {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ';

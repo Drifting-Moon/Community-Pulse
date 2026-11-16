@@ -77,6 +77,7 @@ export default function VolunteersPage() {
   const [showRegisterModal, setShowRegisterModal] = useState(false);
   const [regStep, setRegStep] = useState<1 | 2 | 3>(1);
   const [regName, setRegName] = useState('');
+  const [regEmail, setRegEmail] = useState('');
   const [regNgo, setRegNgo] = useState('Independent Civic Responder');
   const [regPhone, setRegPhone] = useState('');
   const [regLanguage, setRegLanguage] = useState('English');
@@ -113,6 +114,7 @@ export default function VolunteersPage() {
     try {
       const payload = {
         name: regName.trim(),
+        email: regEmail.trim() ? regEmail.trim().toLowerCase() : undefined,
         ngo: regNgo.trim(),
         phone: regPhone.trim() || undefined,
         preferredLanguage: regLanguage,
@@ -614,6 +616,17 @@ export default function VolunteersPage() {
                       </option>
                     ))}
                   </select>
+                </div>
+
+                <div>
+                  <label className="block text-[#8B8B94] font-medium mb-1">Email ID</label>
+                  <input
+                    type="email"
+                    placeholder="volunteer@agency.org"
+                    value={regEmail}
+                    onChange={(e) => setRegEmail(e.target.value)}
+                    className="w-full h-10 bg-[#0E0E10] border border-[#26262A] rounded-[8px] px-3 text-white focus:outline-none"
+                  />
                 </div>
 
                 <div>

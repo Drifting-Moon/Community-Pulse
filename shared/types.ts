@@ -99,6 +99,7 @@ export interface VolunteerProfile {
   ngoCode?: string; // 5-letter unique NGO code (e.g. ASDCG)
   phone?: string;
   email?: string;
+  password?: string;
   preferredLanguage: string;
   skills: string[];
   locationCoords: LocationCoords;

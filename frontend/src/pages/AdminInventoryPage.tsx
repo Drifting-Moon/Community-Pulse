@@ -9,83 +9,17 @@ import type { ReliefSupply } from '../types';
 
 const STORAGE_KEY = 'naturalpulse_admin_supplies';
 
-const DEFAULT_SUPPLIES: ReliefSupply[] = [
-  {
-    id: 'sup-1',
-    name: 'Packaged Drinking Water (20L Jerrycans)',
-    category: 'water',
-    quantity: 450,
-    unit: 'Jerrycans',
-    depotName: 'Central Regional Relief Depot',
-    depotCoords: { lat: 28.6139, lng: 77.2090 }
-  },
-  {
-    id: 'sup-2',
-    name: 'High-Calorie Ready Emergency Food Rations',
-    category: 'food',
-    quantity: 1200,
-    unit: 'Meal Packs',
-    depotName: 'Central Regional Relief Depot',
-    depotCoords: { lat: 28.6139, lng: 77.2090 }
-  },
-  {
-    id: 'sup-3',
-    name: 'Advanced Trauma First Aid Kits',
-    category: 'medical',
-    quantity: 180,
-    unit: 'Kits',
-    depotName: 'Civil Lines Emergency Store',
-    depotCoords: { lat: 28.6750, lng: 77.2250 }
-  },
-  {
-    id: 'sup-4',
-    name: 'Motorized Inflatable Rescue Boats (6-person)',
-    category: 'rescue',
-    quantity: 24,
-    unit: 'Boats',
-    depotName: 'Yamuna Riverfront Dispatch Base',
-    depotCoords: { lat: 28.6400, lng: 77.2450 }
-  },
-  {
-    id: 'sup-5',
-    name: 'Weatherproof Emergency Tents & Tarpaulins',
-    category: 'shelter',
-    quantity: 320,
-    unit: 'Tents',
-    depotName: 'South Zone Logistics Hub',
-    depotCoords: { lat: 28.5355, lng: 77.2410 }
-  },
-  {
-    id: 'sup-6',
-    name: 'Sterile Surgical Bandages & Antiseptics',
-    category: 'medical',
-    quantity: 850,
-    unit: 'Packs',
-    depotName: 'Civil Lines Emergency Store',
-    depotCoords: { lat: 28.6750, lng: 77.2250 }
-  },
-  {
-    id: 'sup-7',
-    name: 'Emergency Water Purification Tablets (10,000L)',
-    category: 'water',
-    quantity: 600,
-    unit: 'Boxes',
-    depotName: 'Central Regional Relief Depot',
-    depotCoords: { lat: 28.6139, lng: 77.2090 }
-  }
-];
-
 export default function AdminInventoryPage() {
   const [supplies, setSupplies] = useState<ReliefSupply[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) return parsed;
       }
-      return DEFAULT_SUPPLIES;
+      return [];
     } catch {
-      return DEFAULT_SUPPLIES;
+      return [];
     }
   });
 
@@ -116,6 +50,10 @@ export default function AdminInventoryPage() {
     setSupplies((prev) =>
       prev.map((s) => (s.id === id ? { ...s, quantity: s.quantity + amount } : s))
     );
+  };
+
+  const handleDeleteSupply = (id: string) => {
+    setSupplies((prev) => prev.filter((s) => s.id !== id));
   };
 
   const handleAddSupply = (e: React.FormEvent) => {
@@ -314,22 +252,30 @@ export default function AdminInventoryPage() {
                       </div>
                     </td>
 
-                    {/* Restock: two ghost buttons "+50" "+250" (1px border, same neutral style, no blue) */}
+                    {/* Restock & Delete Actions */}
                     <td className="px-4 text-right">
                       <div className="inline-flex items-center gap-1.5">
                         <button
                           type="button"
                           onClick={() => handleRestock(item.id, 50)}
-                          className="h-7 px-2.5 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-white text-[13px] rounded-[6px] transition-colors tabular-nums"
+                          className="h-7 px-2.5 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-white text-[13px] rounded-[6px] transition-colors tabular-nums cursor-pointer"
                         >
                           +50
                         </button>
                         <button
                           type="button"
                           onClick={() => handleRestock(item.id, 250)}
-                          className="h-7 px-2.5 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-white text-[13px] rounded-[6px] transition-colors tabular-nums"
+                          className="h-7 px-2.5 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-white text-[13px] rounded-[6px] transition-colors tabular-nums cursor-pointer"
                         >
                           +250
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteSupply(item.id)}
+                          className="h-7 px-2 bg-[#141416] hover:bg-red-950/40 border border-[#26262A] hover:border-red-500/40 text-[#8B8B94] hover:text-red-400 text-[12px] rounded-[6px] transition-colors cursor-pointer"
+                          title="Remove item"
+                        >
+                          ✕
                         </button>
                       </div>
                     </td>
