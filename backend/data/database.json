@@ -1,0 +1,283 @@
+{
+  "meta": {
+    "lastUpdated": "2026-11-15T10:16:32.795Z",
+    "needsCount": 8,
+    "volunteersCount": 5
+  },
+  "needs": [
+    {
+      "id": "a2f31cb9-f118-41d3-ab5c-b677bb8e3be0",
+      "location": {
+        "name": "Mumbai (Andheri)",
+        "lat": 19.1136,
+        "lng": 72.8697
+      },
+      "crisisType": "medical",
+      "urgencyReasoning": "Emergency medical ping near International Airport. Multi-vehicle incident.",
+      "estimatedScale": 5,
+      "reportCount": 4,
+      "criticalityScore": 92,
+      "status": "OPEN",
+      "reportedAt": 1794737072795,
+      "rawInputs": [
+        "Highway accident, need ambulances."
+      ]
+    },
+    {
+      "id": "8dbdb6d9-795b-4467-bda1-78c641607407",
+      "location": {
+        "name": "Delhi (Chandni Chowk)",
+        "lat": 28.6506,
+        "lng": 77.23
+      },
+      "crisisType": "infrastructure",
+      "urgencyReasoning": "Fire signal in old commercial block. Risk of rapid spread.",
+      "estimatedScale": 30,
+      "reportCount": 12,
+      "criticalityScore": 95,
+      "status": "OPEN",
+      "reportedAt": 1794735692795,
+      "rawInputs": [
+        "Major fire breaking out in narrow lanes."
+      ]
+    },
+    {
+      "id": "5487da3a-6dc0-4d4b-89df-641cbcf00083",
+      "location": {
+        "name": "Chennai (T Nagar)",
+        "lat": 13.0405,
+        "lng": 80.2337
+      },
+      "crisisType": "water",
+      "urgencyReasoning": "Deep waterlogging. Residential ground floors submerged.",
+      "estimatedScale": 150,
+      "reportCount": 45,
+      "criticalityScore": 88,
+      "status": "OPEN",
+      "reportedAt": 1794733292795,
+      "rawInputs": [
+        "Water entering houses, elderly people stuck."
+      ]
+    },
+    {
+      "id": "3332ce92-a7c9-4580-a6a5-2a04cc803528",
+      "location": {
+        "name": "Kolkata (Park Street)",
+        "lat": 22.5487,
+        "lng": 88.3522
+      },
+      "crisisType": "infrastructure",
+      "urgencyReasoning": "Structural crack detected in flyover pillar. Traffic priority: HIGH.",
+      "estimatedScale": 0,
+      "reportCount": 3,
+      "criticalityScore": 68,
+      "status": "RESOLVED",
+      "reportedAt": 1794726992795,
+      "resolvedAt": 1794735092795,
+      "rawInputs": [
+        "Flyover support looks unstable."
+      ]
+    },
+    {
+      "id": "3f2e6c24-4352-4bb3-b917-f430ec941b2e",
+      "location": {
+        "name": "Hyderabad (Hitech City)",
+        "lat": 17.4483,
+        "lng": 78.3915
+      },
+      "crisisType": "medical",
+      "urgencyReasoning": "Heatstroke cluster reported at construction site. ~15 individuals affected.",
+      "estimatedScale": 15,
+      "reportCount": 2,
+      "criticalityScore": 72,
+      "status": "RESOLVED",
+      "reportedAt": 1794723392795,
+      "resolvedAt": 1794730592795,
+      "rawInputs": [
+        "Labourers fainting due to heat."
+      ]
+    },
+    {
+      "id": "ae8bb451-f67c-4d2b-b9d7-c91ff2289a02",
+      "location": {
+        "name": "Jaipur (Amber Road)",
+        "lat": 26.9855,
+        "lng": 75.8513
+      },
+      "crisisType": "water",
+      "urgencyReasoning": "Main supply pipe burst. Severe water wastage and road collapse risk.",
+      "estimatedScale": 500,
+      "reportCount": 8,
+      "criticalityScore": 61,
+      "status": "OPEN",
+      "reportedAt": 1794726992795,
+      "rawInputs": [
+        "Pipeline exploded, road is eroding."
+      ]
+    },
+    {
+      "id": "dc444295-3288-4ceb-ad9d-37bc95c1f31d",
+      "location": {
+        "name": "Bangalore (Indiranagar)",
+        "lat": 12.9784,
+        "lng": 77.6408
+      },
+      "crisisType": "food",
+      "urgencyReasoning": "Ration distribution mismatch for displaced families. Immediate food needed.",
+      "estimatedScale": 80,
+      "reportCount": 1,
+      "criticalityScore": 56,
+      "status": "RESOLVED",
+      "reportedAt": 1794719792795,
+      "resolvedAt": 1794725192795,
+      "rawInputs": [
+        "Displaced families haven’t eaten in 10 hours."
+      ]
+    },
+    {
+      "id": "e73da010-d3df-4e8c-9dd7-59f84cbcbd1f",
+      "location": {
+        "name": "Lucknow (Gomti Nagar)",
+        "lat": 26.8496,
+        "lng": 80.9992
+      },
+      "crisisType": "infrastructure",
+      "urgencyReasoning": "Overhanging high-tension wire across pedestrian crossing.",
+      "estimatedScale": 10,
+      "reportCount": 1,
+      "criticalityScore": 79,
+      "status": "OPEN",
+      "reportedAt": 1794736292795,
+      "rawInputs": [
+        "Live wire hanging dangerously low."
+      ]
+    }
+  ],
+  "volunteers": [
+    {
+      "id": "f0f44722-af4e-4c4d-8ce6-a8f05ef36432",
+      "name": "Dr. Aarav Mehra",
+      "ngo": "Doctors Without Borders (MSF)",
+      "phone": "+91 98201 12345",
+      "email": "aarav.mehra@msf.ngo.in",
+      "preferredLanguage": "Hindi",
+      "skills": [
+        "medical",
+        "emergency triage",
+        "first aid"
+      ],
+      "locationCoords": {
+        "lat": 19.0422,
+        "lng": 72.8538
+      },
+      "locationName": "Mumbai - Dharavi Health Post",
+      "reliabilityRate": 0.98,
+      "status": "AVAILABLE",
+      "hoursLast30Days": 12,
+      "pastContributions": [
+        "Flood medical relief 2024"
+      ],
+      "registeredAt": 1794478592792
+    },
+    {
+      "id": "e4271e86-df1f-4f40-890d-52104e681123",
+      "name": "Sunita Rao",
+      "ngo": "Red Cross Society India",
+      "phone": "+91 98110 54321",
+      "email": "sunita.rao@indianredcross.org",
+      "preferredLanguage": "English",
+      "skills": [
+        "water",
+        "shelter",
+        "first aid"
+      ],
+      "locationCoords": {
+        "lat": 19.076,
+        "lng": 72.8777
+      },
+      "locationName": "Mumbai - Central Logistics Hub",
+      "reliabilityRate": 0.95,
+      "status": "AVAILABLE",
+      "hoursLast30Days": 15,
+      "pastContributions": [
+        "Clean water tanker deployment"
+      ],
+      "registeredAt": 1794305792792
+    },
+    {
+      "id": "13d036d7-75ef-4b3d-a2c3-ab286ff2619a",
+      "name": "Vikram Joshi",
+      "ngo": "Goonj Relief Force",
+      "phone": "+91 97171 99887",
+      "email": "vikram.j@goonj.ngo",
+      "preferredLanguage": "Hindi",
+      "skills": [
+        "food",
+        "logistics",
+        "shelter"
+      ],
+      "locationCoords": {
+        "lat": 28.6315,
+        "lng": 77.2167
+      },
+      "locationName": "Delhi - Connaught Place Center",
+      "reliabilityRate": 0.92,
+      "status": "AVAILABLE",
+      "hoursLast30Days": 10,
+      "pastContributions": [
+        "Dry ration distribution drive"
+      ],
+      "registeredAt": 1794132992792
+    },
+    {
+      "id": "7367eb4d-6faa-46b0-a411-5d3327cb3f41",
+      "name": "Kavita Nair",
+      "ngo": "SEEDS India Disaster Response",
+      "phone": "+91 94440 23456",
+      "email": "kavita.nair@seedsindia.org",
+      "preferredLanguage": "Tamil",
+      "skills": [
+        "infrastructure",
+        "water",
+        "rescue"
+      ],
+      "locationCoords": {
+        "lat": 13.0405,
+        "lng": 80.2337
+      },
+      "locationName": "Chennai - T Nagar Response Hub",
+      "reliabilityRate": 0.96,
+      "status": "AVAILABLE",
+      "hoursLast30Days": 8,
+      "pastContributions": [
+        "Urban cyclone barrier support"
+      ],
+      "registeredAt": 1794564992792
+    },
+    {
+      "id": "6b0e33aa-be7a-46cf-bf88-8cdeec29d1c6",
+      "name": "Rohan Sen",
+      "ngo": "NDRF Auxiliary Volunteers",
+      "phone": "+91 98300 76543",
+      "email": "rohan.sen@ndrf-aux.gov.in",
+      "preferredLanguage": "Bengali",
+      "skills": [
+        "rescue",
+        "infrastructure",
+        "flood evacuation"
+      ],
+      "locationCoords": {
+        "lat": 22.5487,
+        "lng": 88.3522
+      },
+      "locationName": "Kolkata - Park Street Emergency Staging",
+      "reliabilityRate": 0.97,
+      "status": "AVAILABLE",
+      "hoursLast30Days": 14,
+      "pastContributions": [
+        "Search & rescue operations"
+      ],
+      "registeredAt": 1794651392792
+    }
+  ]
+}

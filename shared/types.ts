@@ -89,12 +89,15 @@ export interface NeedEntity {
   proofOfWork?: ProofOfWork;
   timeline?: TimelineEntry[];
   dispatchMessage?: string;
+  respondingParty?: string; // Name of responder or department responding (e.g. "City Fire Station 1", "Ramesh Kumar (Red Cross)")
+  responseStatus?: 'AWAITING_RESPONSE' | 'RESPONDING' | 'ON_SCENE' | 'RESOLVED';
 }
 
 export interface VolunteerProfile {
   id: string;
   name: string;
   ngo?: string; // NGO / Affiliation (e.g. Red Cross, Goonj, SEEDS, Independent)
+  ngoCode?: string; // 5-letter unique NGO code (e.g. ASDCG)
   phone?: string;
   email?: string;
   preferredLanguage: string;
@@ -120,4 +123,25 @@ export interface Prediction {
   lat?: number;
   lng?: number;
   riskScore?: number;
+}
+
+export type AdminDepartmentCategory =
+  | 'FIRE_DEPT'
+  | 'POLICE_DEPT'
+  | 'NGO'
+  | 'MEDICAL_HEALTH'
+  | 'DISASTER_MGMT';
+
+export interface AdminAccount {
+  id: string;
+  email: string; // Unique login email
+  password?: string; // Account password
+  departmentCategory: AdminDepartmentCategory;
+  departmentName: string;
+  stationName: string;
+  hqCoords: LocationCoords;
+  radiusKm: number; // 15 km
+  ngoCode?: string; // 5-letter unique code e.g. ASDCG
+  loginEmail?: string;
+  createdAt: number;
 }

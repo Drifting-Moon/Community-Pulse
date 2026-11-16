@@ -10,13 +10,83 @@ import type { ReliefSupply } from '../types';
 
 const STORAGE_KEY = 'naturalpulse_admin_supplies';
 
+const DEFAULT_SUPPLIES: ReliefSupply[] = [
+  {
+    id: 'sup-1',
+    name: 'Packaged Drinking Water (20L Jerrycans)',
+    category: 'water',
+    quantity: 450,
+    unit: 'Jerrycans',
+    depotName: 'Central Regional Relief Depot',
+    depotCoords: { lat: 28.6139, lng: 77.2090 }
+  },
+  {
+    id: 'sup-2',
+    name: 'High-Calorie Ready Emergency Food Rations',
+    category: 'food',
+    quantity: 1200,
+    unit: 'Meal Packs',
+    depotName: 'Central Regional Relief Depot',
+    depotCoords: { lat: 28.6139, lng: 77.2090 }
+  },
+  {
+    id: 'sup-3',
+    name: 'Advanced Trauma First Aid Kits',
+    category: 'medical',
+    quantity: 180,
+    unit: 'Kits',
+    depotName: 'Civil Lines Emergency Store',
+    depotCoords: { lat: 28.6750, lng: 77.2250 }
+  },
+  {
+    id: 'sup-4',
+    name: 'Motorized Inflatable Rescue Boats (6-person)',
+    category: 'rescue',
+    quantity: 24,
+    unit: 'Boats',
+    depotName: 'Yamuna Riverfront Dispatch Base',
+    depotCoords: { lat: 28.6400, lng: 77.2450 }
+  },
+  {
+    id: 'sup-5',
+    name: 'Weatherproof Emergency Tents & Tarpaulins',
+    category: 'shelter',
+    quantity: 320,
+    unit: 'Tents',
+    depotName: 'South Zone Logistics Hub',
+    depotCoords: { lat: 28.5355, lng: 77.2410 }
+  },
+  {
+    id: 'sup-6',
+    name: 'Sterile Surgical Bandages & Antiseptics',
+    category: 'medical',
+    quantity: 850,
+    unit: 'Packs',
+    depotName: 'Civil Lines Emergency Store',
+    depotCoords: { lat: 28.6750, lng: 77.2250 }
+  },
+  {
+    id: 'sup-7',
+    name: 'Emergency Water Purification Tablets (10,000L)',
+    category: 'water',
+    quantity: 600,
+    unit: 'Boxes',
+    depotName: 'Central Regional Relief Depot',
+    depotCoords: { lat: 28.6139, lng: 77.2090 }
+  }
+];
+
 export default function AdminInventoryPage() {
   const [supplies, setSupplies] = useState<ReliefSupply[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      return saved ? JSON.parse(saved) : [];
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+      return DEFAULT_SUPPLIES;
     } catch {
-      return [];
+      return DEFAULT_SUPPLIES;
     }
   });
 

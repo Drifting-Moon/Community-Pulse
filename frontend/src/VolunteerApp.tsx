@@ -117,6 +117,7 @@ export default function VolunteerApp() {
   const [regStep, setRegStep] = useState<1 | 2 | 3>(1);
   const [regName, setRegName] = useState<string>('');
   const [regNgo, setRegNgo] = useState<string>('Red Cross Society India');
+  const [regNgoCode, setRegNgoCode] = useState<string>('');
   const [regPhone, setRegPhone] = useState<string>('');
   const [regLanguage, setRegLanguage] = useState<string>('English');
   const [regSkills, setRegSkills] = useState<string[]>(['medical', 'water']);
@@ -220,9 +221,11 @@ export default function VolunteerApp() {
 
     setIsSubmitting(true);
     try {
+      const cleanCode = regNgoCode.trim() ? regNgoCode.trim().toUpperCase() : undefined;
       const payload = {
         name: regName.trim(),
         ngo: regNgo.trim(),
+        ngoCode: cleanCode,
         phone: regPhone.trim() || undefined,
         preferredLanguage: regLanguage,
         skills: regSkills.length > 0 ? regSkills : ['medical'],
@@ -237,10 +240,12 @@ export default function VolunteerApp() {
       setIsSubmitting(false);
       playEmergencyChime();
     } catch {
+      const cleanCode = regNgoCode.trim() ? regNgoCode.trim().toUpperCase() : undefined;
       const fallbackVol: VolunteerProfile = {
         id: crypto.randomUUID(),
         name: regName.trim(),
         ngo: regNgo.trim(),
+        ngoCode: cleanCode,
         phone: regPhone.trim() || undefined,
         preferredLanguage: regLanguage,
         skills: regSkills.length > 0 ? regSkills : ['medical'],
@@ -599,7 +604,10 @@ export default function VolunteerApp() {
                 <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-lg p-2 z-[1000] text-[13px]">
                   <div className="px-3 py-2 border-b border-gray-100 mb-1">
                     <p className="font-semibold text-gray-900 truncate">{volunteer?.name || 'Responder'}</p>
-                    <p className="text-gray-500 text-[11px] truncate">{volunteer?.ngo || 'Independent volunteer'}</p>
+                    <p className="text-gray-500 text-[11px] truncate">
+                      {volunteer?.ngo || 'Independent volunteer'}
+                      {volunteer?.ngoCode ? ` • Code: ${volunteer.ngoCode}` : ''}
+                    </p>
                   </div>
                   <button
                     onClick={() => {
@@ -728,9 +736,17 @@ export default function VolunteerApp() {
                           <h4 className="text-[15px] font-semibold text-gray-900 capitalize">
                             {need.crisisType} • {need.location.name}
                           </h4>
-                          {isResponding && (
+                          {isResponding ? (
                             <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-green-50 text-[#2E9E6B] border border-green-200 shrink-0">
                               {need.status === 'ON_SCENE' ? 'On scene' : 'En route'}
+                            </span>
+                          ) : need.respondingParty || (need.enRouteVolunteers && need.enRouteVolunteers.length > 0) || need.responseStatus === 'RESPONDING' ? (
+                            <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 shrink-0 truncate max-w-[160px]">
+                              🟢 Responding: {need.respondingParty || need.enRouteVolunteers?.[0]?.name || 'Dispatched'}
+                            </span>
+                          ) : (
+                            <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 shrink-0">
+                              ⏳ Awaiting responder
                             </span>
                           )}
                         </div>
@@ -970,6 +986,24 @@ export default function VolunteerApp() {
                     <option value="Civil Defense Corps">Civil Defense Corps</option>
                     <option value="Independent Civic Responder">Independent Civic Responder</option>
                   </select>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-gray-700 font-medium">NGO Team Code</label>
+                    <span className="text-[11px] text-gray-400">Optional • 5 Letters</span>
+                  </div>
+                  <input
+                    type="text"
+                    maxLength={5}
+                    placeholder="e.g. ASDCG"
+                    value={regNgoCode}
+                    onChange={(e) => setRegNgoCode(e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))}
+                    className="w-full h-10 bg-white border border-gray-300 rounded-lg px-3 text-gray-900 uppercase font-mono tracking-wider focus:outline-none focus:border-gray-900 placeholder:normal-case placeholder:font-sans placeholder:tracking-normal text-[14px]"
+                  />
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    If your NGO provided a 5-letter team code, enter it so your response unit links to your admin.
+                  </p>
                 </div>
 
                 <div>

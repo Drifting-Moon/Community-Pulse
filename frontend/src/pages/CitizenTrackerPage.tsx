@@ -217,9 +217,19 @@ export default function CitizenTrackerPage() {
             {/* Status message line */}
             <div className="text-[15px] text-gray-700 leading-relaxed">
               {incident.status === 'RESOLVED' && 'Incident has been resolved by on-scene responders. Relief verified.'}
-              {incident.status === 'ON_SCENE' && 'Emergency personnel have arrived on site and are actively rendering assistance.'}
-              {incident.status === 'EN_ROUTE' && 'Responders have been dispatched and are currently en route to your location.'}
-              {incident.status === 'VERIFIED' && 'Incident has been verified by dispatch officers. Mobilizing nearest response unit.'}
+              {incident.status === 'ON_SCENE' && (
+                <span className="text-emerald-700 font-medium">
+                  🟢 Emergency personnel have arrived on site and are actively rendering assistance.
+                </span>
+              )}
+              {(incident.status === 'EN_ROUTE' || incident.responseStatus === 'RESPONDING') && (
+                <span className="text-emerald-700 font-medium">
+                  🟢 Response unit is active! {incident.respondingParty || incident.enRouteVolunteers?.[0]?.name || 'Official response team'} is responding to your location.
+                </span>
+              )}
+              {incident.status === 'VERIFIED' && !incident.respondingParty && incident.responseStatus !== 'RESPONDING' && (
+                'Incident has been verified by dispatch officers. Mobilizing nearest response unit.'
+              )}
               {incident.status === 'UNVERIFIED' && 'Your signal has been received and is currently in queue for dispatcher triage.'}
               {incident.status === 'FALSE_ALARM' && 'Report was inspected and closed as a duplicate or false alarm.'}
             </div>
@@ -240,42 +250,69 @@ export default function CitizenTrackerPage() {
           {/* RIGHT COLUMN: Responder Card & Updates Timeline */}
           <div className="space-y-6">
             {/* Responder Card */}
-            {incident.enRouteVolunteers && incident.enRouteVolunteers.length > 0 && (
-              <div className="border border-gray-200 rounded-[12px] p-5 bg-white space-y-3">
-                <span className="text-[13px] font-semibold text-gray-900 block">
-                  Assigned Responder
-                </span>
+            {(incident.respondingParty || (incident.enRouteVolunteers && incident.enRouteVolunteers.length > 0) || incident.responseStatus === 'RESPONDING') ? (
+              <div className="border border-emerald-200 bg-emerald-50/40 rounded-[12px] p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[13px] font-semibold text-emerald-900 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    Assigned Responding Unit
+                  </span>
+                  <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                    {incident.status === 'ON_SCENE' ? 'On Scene' : 'En Route'}
+                  </span>
+                </div>
 
-                {incident.enRouteVolunteers.map((vol) => (
-                  <div key={vol.id} className="space-y-2 text-[13px]">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <div className="font-medium text-gray-900 text-[15px]">{vol.name}</div>
-                        <div className="text-gray-500 text-[13px]">{vol.ngo || 'Official Rescue Unit'}</div>
+                {incident.enRouteVolunteers && incident.enRouteVolunteers.length > 0 ? (
+                  incident.enRouteVolunteers.map((vol) => (
+                    <div key={vol.id} className="space-y-2 text-[13px] pt-1">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="font-semibold text-gray-900 text-[15px]">{vol.name}</div>
+                          <div className="text-gray-600 text-[13px]">{vol.ngo || incident.respondingParty || 'Official Rescue Unit'}</div>
+                        </div>
+                        {vol.etaMinutes && (
+                          <div className="flex items-center gap-1 text-emerald-700 font-semibold tabular-nums text-[13px] bg-white px-2 py-1 rounded border border-emerald-200">
+                            <ClockIcon className="w-4 h-4 text-emerald-600" />
+                            <span>ETA ~{vol.etaMinutes}m</span>
+                          </div>
+                        )}
                       </div>
-                      {vol.etaMinutes && (
-                        <div className="flex items-center gap-1 text-gray-600 font-medium tabular-nums text-[13px]">
-                          <ClockIcon className="w-4 h-4 text-gray-400" />
-                          <span>ETA {vol.etaMinutes}m</span>
+
+                      {vol.phone && (
+                        <div className="pt-2">
+                          <a
+                            href={`tel:${vol.phone}`}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 hover:bg-gray-50 text-gray-800 rounded-lg text-[13px] font-medium transition-colors shadow-sm"
+                          >
+                            <PhoneIcon className="w-3.5 h-3.5" />
+                            Call responder
+                          </a>
                         </div>
                       )}
                     </div>
-
-                    {vol.phone && (
-                      <div className="pt-2">
-                        <a
-                          href={`tel:${vol.phone}`}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 hover:bg-gray-50 text-gray-800 rounded-lg text-[13px] font-medium transition-colors"
-                        >
-                          <PhoneIcon className="w-3.5 h-3.5" />
-                          Call responder
-                        </a>
-                      </div>
-                    )}
+                  ))
+                ) : (
+                  <div className="space-y-2 text-[13px] pt-1">
+                    <div className="font-semibold text-gray-900 text-[15px]">
+                      {incident.respondingParty || 'Municipal Emergency Response Unit'}
+                    </div>
+                    <p className="text-gray-600 text-[13px]">
+                      A specialized response crew is actively assigned and in motion to your coordinate.
+                    </p>
                   </div>
-                ))}
+                )}
               </div>
-            )}
+            ) : incident.status !== 'RESOLVED' ? (
+              <div className="border border-amber-200 bg-amber-50/40 rounded-[12px] p-5 space-y-2">
+                <span className="text-[13px] font-semibold text-amber-900 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-amber-500" />
+                  Awaiting Responder Dispatch
+                </span>
+                <p className="text-[13px] text-gray-600 leading-relaxed">
+                  Your emergency signal is prioritized. Command center dispatchers are identifying the closest active unit in your 15km sector.
+                </p>
+              </div>
+            ) : null}
 
             {/* Updates Audit Timeline */}
             <div className="border border-gray-200 rounded-[12px] p-5 bg-white space-y-3">

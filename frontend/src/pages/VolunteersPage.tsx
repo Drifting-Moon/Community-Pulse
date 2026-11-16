@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
-import type { VolunteerProfile } from '../types';
+import type { VolunteerProfile, AdminAccount } from '../types';
 import {
   MagnifyingGlassIcon,
   EllipsisVerticalIcon,
@@ -56,6 +56,16 @@ const AVAILABLE_SKILLS = [
 ];
 
 export default function VolunteersPage() {
+  const ADMIN_STORAGE_KEY = 'communitypulse_admin_account';
+  const [adminAccount] = useState<AdminAccount | null>(() => {
+    try {
+      const saved = localStorage.getItem(ADMIN_STORAGE_KEY);
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
   const [volunteers, setVolunteers] = useState<VolunteerProfile[]>([]);
   const [search, setSearch] = useState('');
   const [nearAnchor, setNearAnchor] = useState<string>('');
@@ -147,12 +157,41 @@ export default function VolunteersPage() {
   const filteredVolunteers = useMemo(() => {
     let list = [...volunteers];
 
+    // NGO isolation: NGO admin sees ONLY volunteers who joined their NGO (by 5-letter code or matching name)
+    if (adminAccount?.departmentCategory === 'NGO') {
+      list = list.filter((v) => {
+        if (adminAccount.ngoCode && v.ngoCode) {
+          return v.ngoCode.toUpperCase() === adminAccount.ngoCode.toUpperCase();
+        }
+        if (adminAccount.departmentName && v.ngo) {
+          return v.ngo.toLowerCase().includes(adminAccount.departmentName.toLowerCase()) ||
+                 adminAccount.departmentName.toLowerCase().includes(v.ngo.toLowerCase());
+        }
+        return false;
+      });
+    }
+
+    // Fixed 15 km area filtering for Department / NGO admin
+    if (adminAccount?.hqCoords) {
+      list = list.filter((v) => {
+        if (!v.locationCoords) return false;
+        const dist = haversineDistance(
+          adminAccount.hqCoords.lat,
+          adminAccount.hqCoords.lng,
+          v.locationCoords.lat,
+          v.locationCoords.lng
+        );
+        return dist <= (adminAccount.radiusKm || 15);
+      });
+    }
+
     // Search filter
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter((v) =>
         v.name.toLowerCase().includes(q) ||
         (v.ngo || '').toLowerCase().includes(q) ||
+        (v.ngoCode || '').toLowerCase().includes(q) ||
         (v.locationName || '').toLowerCase().includes(q) ||
         v.skills.some((s) => s.toLowerCase().includes(q))
       );
@@ -181,17 +220,73 @@ export default function VolunteersPage() {
     }
 
     return list;
-  }, [volunteers, search, ngoFilter, statusFilter, nearAnchor, radiusKm]);
+  }, [volunteers, search, ngoFilter, statusFilter, nearAnchor, radiusKm, adminAccount]);
 
   const sublineText = useMemo(() => {
+    if (adminAccount?.departmentCategory === 'NGO') {
+      return `${filteredVolunteers.length} verified responders registered to ${adminAccount.departmentName} within 15 km area`;
+    }
+    if (adminAccount) {
+      return `${filteredVolunteers.length} active emergency responders within 15 km radius of ${adminAccount.stationName}`;
+    }
     if (nearAnchor) {
       return `${filteredVolunteers.length} volunteers within ${radiusKm} km of ${nearAnchor}`;
     }
     return `${filteredVolunteers.length} volunteers`;
-  }, [filteredVolunteers.length, nearAnchor, radiusKm]);
+  }, [filteredVolunteers.length, nearAnchor, radiusKm, adminAccount]);
 
   return (
     <div className="w-full max-w-[1600px] mx-auto px-6 xl:px-8 py-6 space-y-4 font-sans text-[#F2F2F3]">
+      {/* Department Context Banner */}
+      {adminAccount?.departmentCategory === 'NGO' && (
+        <div className="bg-emerald-950/40 border border-emerald-500/30 rounded-xl p-3.5 px-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-lg shrink-0">
+              🤝
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <p className="text-[15px] font-semibold text-white">{adminAccount.departmentName} Team</p>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                  Private NGO Roster
+                </span>
+              </div>
+              <p className="text-[12px] text-emerald-300/80">
+                Only volunteers who registered with your unique 5-letter code appear in this roster (15 km operational radius).
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 self-end sm:self-auto">
+            <span className="text-[12px] text-[#8B8B94]">Team Join Code:</span>
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard.writeText(adminAccount.ngoCode || '');
+                alert(`Copied NGO Code: ${adminAccount.ngoCode}`);
+              }}
+              className="px-3 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-mono font-bold tracking-widest text-[14px] rounded-lg border border-emerald-500/40 transition-colors cursor-pointer"
+              title="Click to copy 5-letter code"
+            >
+              {adminAccount.ngoCode}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {adminAccount && adminAccount.departmentCategory !== 'NGO' && (
+        <div className="bg-[#141416] border border-[#26262A] rounded-xl p-3 px-4 flex items-center justify-between shadow-sm">
+          <div className="flex items-center gap-3">
+            <span className="text-xl">
+              {adminAccount.departmentCategory === 'FIRE_DEPT' ? '🚒' : adminAccount.departmentCategory === 'POLICE_DEPT' ? '🚓' : adminAccount.departmentCategory === 'MEDICAL_HEALTH' ? '🏥' : '🛡️'}
+            </span>
+            <div>
+              <p className="text-[14px] font-semibold text-white">{adminAccount.departmentName} Jurisdiction</p>
+              <p className="text-[12px] text-[#8B8B94]">Active responders within 15 km radius of {adminAccount.stationName} Base HQ.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Toolbar Row */}
       <div className="flex flex-wrap items-center gap-3">
         {/* Search input (flex-1, h-10) */}
@@ -351,7 +446,7 @@ export default function VolunteersPage() {
                           </div>
                           <div>
                             <div className="text-[15px] font-medium text-white">{vol.name}</div>
-                            <div className="flex items-center gap-1.5 mt-0.5">
+                            <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                               <span className="text-[13px] text-[#8B8B94]">{vol.ngo || 'Independent Responder'}</span>
                               {vol.ngo?.includes('NDRF') || vol.ngo?.includes('Civil Defense') ? (
                                 <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
@@ -364,6 +459,11 @@ export default function VolunteersPage() {
                               ) : (
                                 <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-zinc-500/10 text-zinc-400 border border-zinc-500/20">
                                   Civic
+                                </span>
+                              )}
+                              {vol.ngoCode && (
+                                <span className="px-1.5 py-0.5 rounded bg-emerald-950/80 text-emerald-300 font-mono text-[10px] border border-emerald-500/30 font-bold tracking-wider">
+                                  Code: {vol.ngoCode}
                                 </span>
                               )}
                             </div>

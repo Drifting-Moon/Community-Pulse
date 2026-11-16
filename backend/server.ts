@@ -8,7 +8,7 @@ import crypto from 'crypto';
 import { AIService } from './aiService';
 import { processDeduplication, haversineDistance } from './deduplication';
 import { db } from './firebaseDb';
-import { NeedEntity, VolunteerProfile, EnRouteResponder } from '../shared/types';
+import { NeedEntity, VolunteerProfile, EnRouteResponder, AdminAccount, AdminDepartmentCategory } from '../shared/types';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -249,7 +249,7 @@ app.get('/volunteers/:id', async (req, res) => {
 
 app.post('/volunteers', async (req, res) => {
   try {
-    const { name, ngo, phone, email, preferredLanguage, skills, locationCoords, locationName } = req.body;
+    const { name, ngo, ngoCode, phone, email, preferredLanguage, skills, locationCoords, locationName } = req.body;
     
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Volunteer name is required' });
@@ -259,10 +259,13 @@ app.post('/volunteers', async (req, res) => {
       return res.status(400).json({ error: 'Valid location coordinates (lat, lng) are required' });
     }
 
+    const cleanNgoCode = ngoCode && typeof ngoCode === 'string' ? ngoCode.trim().toUpperCase() : undefined;
+
     const newVolunteer: VolunteerProfile = {
       id: crypto.randomUUID(),
       name: name.trim(),
       ngo: ngo && ngo.trim() ? ngo.trim() : 'Independent Civic Responder',
+      ngoCode: cleanNgoCode,
       phone: phone ? phone.trim() : undefined,
       email: email ? email.trim() : undefined,
       preferredLanguage: preferredLanguage || 'English',
@@ -280,7 +283,7 @@ app.post('/volunteers', async (req, res) => {
     };
 
     await db.addVolunteer(newVolunteer);
-    console.log(`🙋 New Volunteer Registered: ${newVolunteer.name} [${newVolunteer.ngo}] at ${newVolunteer.locationName} (${newVolunteer.locationCoords.lat}, ${newVolunteer.locationCoords.lng})`);
+    console.log(`🙋 New Volunteer Registered: ${newVolunteer.name} [${newVolunteer.ngo}${cleanNgoCode ? ' Code:' + cleanNgoCode : ''}] at ${newVolunteer.locationName} (${newVolunteer.locationCoords.lat}, ${newVolunteer.locationCoords.lng})`);
     
     res.status(201).json({ success: true, volunteer: newVolunteer });
   } catch (error) {
@@ -292,10 +295,11 @@ app.post('/volunteers', async (req, res) => {
 app.patch('/volunteers/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { ngo, locationCoords, locationName, status, skills, preferredLanguage, phone, email } = req.body;
+    const { ngo, ngoCode, locationCoords, locationName, status, skills, preferredLanguage, phone, email } = req.body;
     
     const updates: Partial<VolunteerProfile> = {};
     if (ngo !== undefined) updates.ngo = ngo.trim();
+    if (ngoCode !== undefined) updates.ngoCode = typeof ngoCode === 'string' ? ngoCode.trim().toUpperCase() : undefined;
     if (locationCoords && typeof locationCoords.lat === 'number' && typeof locationCoords.lng === 'number') {
       updates.locationCoords = {
         lat: Number(locationCoords.lat),
@@ -350,6 +354,189 @@ app.post('/volunteers/seed', async (req, res) => {
     res.json({ success: true, count: vols.length, volunteers: vols });
   } catch (error) {
     res.status(500).json({ error: 'Failed to seed verified NGO teams' });
+  }
+});
+
+// --- Admin Department Authentication & NGO Code Management ---
+const handleRegisterAdmin = async (req: express.Request, res: express.Response) => {
+  try {
+    const { email, password, departmentCategory, departmentName, stationName, hqCoords } = req.body;
+
+    if (!email || !email.trim()) {
+      return res.status(400).json({ error: 'Email address is required.' });
+    }
+
+    if (!password || password.trim().length < 6) {
+      return res.status(400).json({ error: 'Password is required and must be at least 6 characters.' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+
+    // Enforce unique email check
+    const existing = await db.getAdminAccountByEmail(cleanEmail);
+    if (existing) {
+      return res.status(409).json({ error: 'An admin account with this Email ID already exists. Please sign in instead.' });
+    }
+
+    if (!departmentCategory || !departmentName || !stationName) {
+      return res.status(400).json({ error: 'Department category, department name, and station name are required.' });
+    }
+
+    const validCategories: AdminDepartmentCategory[] = [
+      'FIRE_DEPT',
+      'POLICE_DEPT',
+      'NGO',
+      'MEDICAL_HEALTH',
+      'DISASTER_MGMT'
+    ];
+
+    if (!validCategories.includes(departmentCategory)) {
+      return res.status(400).json({ error: `Invalid category. Must be one of: ${validCategories.join(', ')}` });
+    }
+
+    let ngoCode: string | undefined = undefined;
+    if (departmentCategory === 'NGO') {
+      const customCode = req.body.ngoCode;
+      if (customCode && typeof customCode === 'string' && customCode.trim().length === 5) {
+        const clean = customCode.trim().toUpperCase().replace(/[^A-Z]/g, '');
+        if (clean.length === 5) {
+          const existing = await db.getAdminAccountByNgoCode(clean);
+          if (existing) {
+            return res.status(409).json({ error: `NGO code "${clean}" is already in use by another department/organization.` });
+          }
+          ngoCode = clean;
+        }
+      }
+      if (!ngoCode) {
+        ngoCode = db.generateUnique5LetterCode();
+      }
+    }
+
+    const defaultCoords = hqCoords && typeof hqCoords.lat === 'number' && typeof hqCoords.lng === 'number'
+      ? { lat: Number(hqCoords.lat), lng: Number(hqCoords.lng) }
+      : { lat: 26.9124, lng: 75.7873 }; // Default central command
+
+    const newAccount: AdminAccount = {
+      id: crypto.randomUUID(),
+      email: cleanEmail,
+      password: password.trim(),
+      departmentCategory,
+      departmentName: departmentName.trim(),
+      stationName: stationName.trim(),
+      hqCoords: defaultCoords,
+      radiusKm: 15, // Fixed 15 km area as specified
+      ngoCode,
+      createdAt: Date.now()
+    };
+
+    await db.addAdminAccount(newAccount);
+    console.log(`🛡️ Admin Account Registered: [${newAccount.departmentCategory}] ${newAccount.departmentName} (${cleanEmail}) - 15km Radius${ngoCode ? ' [NGO Code: ' + ngoCode + ']' : ''}`);
+
+    const { password: _, ...safeAccount } = newAccount;
+    res.status(201).json({ success: true, account: safeAccount });
+  } catch (error) {
+    console.error('Failed to register admin account:', error);
+    res.status(500).json({ error: 'Failed to register admin account' });
+  }
+};
+
+const handleLoginAdmin = async (req: express.Request, res: express.Response) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !email.trim()) {
+      return res.status(400).json({ error: 'Email ID is required.' });
+    }
+
+    if (!password || !password.trim()) {
+      return res.status(400).json({ error: 'Password is required.' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const account = await db.getAdminAccountByEmail(cleanEmail);
+
+    if (!account) {
+      return res.status(404).json({ error: 'No admin account found with this email. Please register first.' });
+    }
+
+    if (account.password && account.password !== password.trim()) {
+      return res.status(401).json({ error: 'Invalid password. Please check and try again.' });
+    }
+
+    const { password: _, ...safeAccount } = account;
+    res.json({ success: true, account: safeAccount });
+  } catch (error) {
+    console.error('Failed to login admin account:', error);
+    res.status(500).json({ error: 'Login failed' });
+  }
+};
+
+app.post('/admin/auth/register', handleRegisterAdmin);
+app.post('/api/admin/auth/register', handleRegisterAdmin);
+app.post('/admin/auth/login', handleLoginAdmin);
+app.post('/api/admin/auth/login', handleLoginAdmin);
+
+app.get(['/admin/auth/accounts', '/api/admin/auth/accounts'], async (req, res) => {
+  try {
+    const accounts = await db.getAdminAccounts();
+    const safeAccounts = accounts.map(({ password: _, ...rest }) => rest);
+    res.json({ success: true, accounts: safeAccounts });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to list accounts' });
+  }
+});
+
+app.patch(['/admin/auth/account/:id/code', '/api/admin/auth/account/:id/code'], async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { ngoCode } = req.body;
+    if (!ngoCode || typeof ngoCode !== 'string' || ngoCode.trim().length !== 5) {
+      return res.status(400).json({ error: 'NGO team code must be exactly 5 letters.' });
+    }
+    const cleanCode = ngoCode.trim().toUpperCase().replace(/[^A-Z]/g, '');
+    if (cleanCode.length !== 5) {
+      return res.status(400).json({ error: 'NGO team code must contain 5 uppercase letters (A-Z).' });
+    }
+
+    const existing = await db.getAdminAccountByNgoCode(cleanCode);
+    if (existing && existing.id !== id) {
+      return res.status(409).json({ error: `NGO code "${cleanCode}" is already assigned to another organization.` });
+    }
+
+    const updated = await db.updateAdminAccount(id, { ngoCode: cleanCode });
+    if (!updated) {
+      return res.status(404).json({ error: 'Admin account not found.' });
+    }
+
+    const { password: _, ...safeAccount } = updated;
+    res.json({ success: true, account: safeAccount });
+  } catch (error) {
+    console.error('Failed to update NGO code:', error);
+    res.status(500).json({ error: 'Failed to update NGO code' });
+  }
+});
+
+app.get('/ngos/validate-code/:code', async (req, res) => {
+  try {
+    const code = req.params.code ? req.params.code.trim().toUpperCase() : '';
+    if (!code || code.length !== 5) {
+      return res.status(400).json({ valid: false, error: 'NGO code must be exactly 5 letters.' });
+    }
+
+    const account = await db.getAdminAccountByNgoCode(code);
+    if (account) {
+      return res.json({ valid: true, ngoName: account.departmentName, code });
+    }
+
+    // If not found in database memory, validate if it conforms to a 5-letter code format
+    const isLetters = /^[A-Z]{5}$/.test(code);
+    if (isLetters) {
+      return res.json({ valid: true, ngoName: `NGO Affiliated (${code})`, code });
+    }
+
+    res.status(404).json({ valid: false, error: 'Invalid or unknown NGO code' });
+  } catch (error) {
+    res.status(500).json({ error: 'Validation error' });
   }
 });
 
@@ -583,12 +770,18 @@ app.post('/dispatch', async (req, res) => {
       }
     ];
 
+    const respondingParty = topVolunteer.ngo && topVolunteer.ngo !== 'Independent Civic Responder'
+      ? `${topVolunteer.name} (${topVolunteer.ngo})`
+      : topVolunteer.name;
+
     const updates: Partial<NeedEntity> = {
       status: 'EN_ROUTE',
       enRouteVolunteers: updatedList,
       allocatedSupplies,
       timeline,
-      dispatchMessage
+      dispatchMessage,
+      respondingParty,
+      responseStatus: 'RESPONDING'
     };
 
     await db.updateNeed(need.id, updates);
@@ -713,7 +906,7 @@ app.post('/dispatch/on-scene', async (req, res) => {
       }
     ];
 
-    await db.updateNeed(needId, { status: 'ON_SCENE', timeline });
+    await db.updateNeed(needId, { status: 'ON_SCENE', responseStatus: 'ON_SCENE', timeline });
     console.log(`📍 Field Update: Responders arrived at ${need.location.name} (${need.ticketCode || need.id})`);
 
     res.json({ success: true, status: 'ON_SCENE' });
@@ -756,7 +949,7 @@ app.post('/dispatch/resolve', upload.single('proofPhoto'), async (req, res) => {
     ];
 
     await db.resolveNeed(needId);
-    await db.updateNeed(needId, { proofOfWork, timeline });
+    await db.updateNeed(needId, { proofOfWork, responseStatus: 'RESOLVED', timeline });
 
     console.log(`✅ Incident Closed with Proof: ${need.ticketCode || need.id} at ${need.location.name}`);
 

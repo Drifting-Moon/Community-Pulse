@@ -1,10 +1,11 @@
 // In-memory Mock Firestore for Demo MVP
-import { NeedEntity, VolunteerProfile } from '../shared/types';
+import { NeedEntity, VolunteerProfile, AdminAccount } from '../shared/types';
 import * as crypto from 'crypto';
 
 class MockFirestore {
   private needs: Map<string, NeedEntity> = new Map();
   private volunteers: Map<string, VolunteerProfile> = new Map();
+  private adminAccounts: Map<string, AdminAccount> = new Map();
 
   constructor() {
     // Clean initial state - no fake or dummy data seeded on startup
@@ -93,6 +94,64 @@ class MockFirestore {
 
   async getVolunteerById(id: string): Promise<VolunteerProfile | null> {
     return this.volunteers.get(id) || null;
+  }
+
+  // --- Requirements for Admin Accounts & 5-letter NGO Codes ---
+  generateUnique5LetterCode(): string {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+    const existingCodes = new Set(
+      Array.from(this.adminAccounts.values())
+        .map(a => a.ngoCode)
+        .filter(Boolean) as string[]
+    );
+    let code = '';
+    do {
+      code = '';
+      for (let i = 0; i < 5; i++) {
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+    } while (existingCodes.has(code));
+    return code;
+  }
+
+  async addAdminAccount(account: AdminAccount): Promise<void> {
+    this.adminAccounts.set(account.id, account);
+  }
+
+  async updateAdminAccount(id: string, updates: Partial<AdminAccount>): Promise<AdminAccount | null> {
+    const existing = this.adminAccounts.get(id);
+    if (!existing) return null;
+    const updated = { ...existing, ...updates };
+    this.adminAccounts.set(id, updated);
+    return updated;
+  }
+
+  async getAdminAccounts(): Promise<AdminAccount[]> {
+    return Array.from(this.adminAccounts.values());
+  }
+
+  async getAdminAccountById(id: string): Promise<AdminAccount | null> {
+    return this.adminAccounts.get(id) || null;
+  }
+
+  async getAdminAccountByNgoCode(code: string): Promise<AdminAccount | null> {
+    const upper = code.trim().toUpperCase();
+    for (const acc of this.adminAccounts.values()) {
+      if (acc.ngoCode && acc.ngoCode.toUpperCase() === upper) {
+        return acc;
+      }
+    }
+    return null;
+  }
+
+  async getAdminAccountByEmail(email: string): Promise<AdminAccount | null> {
+    const clean = email.trim().toLowerCase();
+    for (const acc of this.adminAccounts.values()) {
+      if (acc.email && acc.email.toLowerCase() === clean) {
+        return acc;
+      }
+    }
+    return null;
   }
 }
 
