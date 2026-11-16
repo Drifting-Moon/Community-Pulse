@@ -169,6 +169,16 @@ export default function VolunteersPage() {
     }
   };
 
+  const handleToggleVolunteerStatus = async (id: string, currentStatus: string) => {
+    const nextStatus = currentStatus === 'AVAILABLE' ? 'OFF_DUTY' : 'AVAILABLE';
+    try {
+      await axios.patch(`${API_BASE}/volunteers/${id}`, { status: nextStatus });
+      setVolunteers((prev) => prev.map((v) => (v.id === id ? { ...v, status: nextStatus } : v)));
+    } catch (e) {
+      console.error('Error updating volunteer status:', e);
+    }
+  };
+
   // Filter calculations
   const filteredVolunteers = useMemo(() => {
     let list = [...volunteers];
@@ -489,10 +499,16 @@ export default function VolunteersPage() {
 
                       {/* Status (dot + "Ready / Busy / Off duty") */}
                       <td className="px-4">
-                        <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleVolunteerStatus(vol.id, vol.status)}
+                          className="flex items-center gap-2 px-2 py-1 rounded-[6px] hover:bg-[#26262A] transition-colors cursor-pointer text-left"
+                          title="Click to toggle Ready / Off duty"
+                        >
                           <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: statusColor }} />
-                          <span className="text-[13px] text-white">{statusText}</span>
-                        </div>
+                          <span className="text-[13px] text-white font-medium">{statusText}</span>
+                          <span className="text-[10px] text-[#8B8B94]">⇄</span>
+                        </button>
                       </td>
 
                       {/* Station (place 15, "Kolkata - Park Street" 13 secondary) */}

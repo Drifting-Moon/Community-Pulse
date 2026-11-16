@@ -29,19 +29,33 @@ process.on('uncaughtException', (err) => {
 const upload = multer({ storage: multer.memoryStorage() });
 
 // Smart local keyword extractor — used as fallback when Gemini quota is exhausted
-function smartLocalExtract(text: string): Partial<any> | null {
+function smartLocalExtract(text: string, explicitCrisisType?: string, fallbackCoords?: { lat: number; lng: number; name?: string }): Partial<any> | null {
   const t = text.toLowerCase();
 
-  // Crisis type detection
-  let crisisType = 'medical';
-  if (/flood|water|rain|tanker|river|drowning|drain|submerged|बाढ़|पानी|नदी/.test(t)) crisisType = 'water';
-  else if (/food|hungry|starv|eat|ration|packet|grocery|meal|भूख|खाना|राशन/.test(t)) crisisType = 'food';
-  else if (/shelter|tent|roof|homeless|displaced|house|stay|live|बेघर|छत/.test(t)) crisisType = 'shelter';
-  else if (/road|bridge|sinkhole|collapse|building|debris|rubble|infra|crack|falling|तोड|गिर|पुल|सड़क/.test(t)) crisisType = 'infrastructure';
-  else if (/fire|medical|doctor|hospital|injured|ambulance|sick|hurt|trapped|blood|patient|emergency|आग|अस्पताल|घायल|दुर्घटना|accident|earthquake|भूकंप|cyclone|तूफान|storm|landslide/.test(t)) crisisType = 'medical';
-  else if (/help|need|urgent|crisis|danger|problem|critical|severe|serious|मदद|जरूरी|खतरा|संकट/.test(t)) crisisType = 'medical';
-  else if (t.trim().split(/\s+/).length >= 5) crisisType = 'medical';
-  else return null;
+  // 1. Tag or explicit crisis type detection
+  let crisisType: string | undefined = explicitCrisisType;
+  if (!crisisType) {
+    const tagMatch = t.match(/\[crisis:\s*([a-z_]+)\]/i);
+    if (tagMatch) {
+      const tag = tagMatch[1].toLowerCase();
+      if (tag === 'flood') crisisType = 'water';
+      else if (tag === 'fire') crisisType = 'infrastructure';
+      else if (['food', 'water', 'medical', 'shelter', 'infrastructure'].includes(tag)) {
+        crisisType = tag;
+      }
+    }
+  }
+
+  // 2. Keyword detection if still unset
+  if (!crisisType) {
+    if (/flood|water|rain|tanker|river|drowning|drain|submerged|overflow|बाढ़|पानी|नदी|जल/.test(t)) crisisType = 'water';
+    else if (/food|hungry|starv|eat|ration|packet|grocery|meal|rice|wheat|grain|diet|भूख|खाना|राशन/.test(t)) crisisType = 'food';
+    else if (/shelter|tent|roof|homeless|displaced|house|stay|live|camp|बेघर|छत|आश्रय/.test(t)) crisisType = 'shelter';
+    else if (/road|bridge|sinkhole|collapse|building|debris|rubble|infra|crack|falling|fire|burn|flame|blaze|explosion|cylinder|blast|पुल|सड़क|आग|धुआं/.test(t)) crisisType = 'infrastructure';
+    else if (/medical|doctor|hospital|injured|ambulance|sick|hurt|trapped|blood|patient|wound|unconscious|fever|bleed|चोट|अस्पताल|घायल|दुर्घटना|accident/.test(t)) crisisType = 'medical';
+    else if (/help|need|urgent|crisis|danger|problem|critical|severe|serious|मदद|जरूरी|खतरा|संकट/.test(t)) crisisType = 'food';
+    else crisisType = 'food';
+  }
 
   const locationMap: Record<string, { lat: number; lng: number }> = {
     'bagru': { lat: 26.8143, lng: 75.5447 },
@@ -87,8 +101,9 @@ function smartLocalExtract(text: string): Partial<any> | null {
     'lucknow': { lat: 26.8467, lng: 80.9462 },
   };
 
-  let locationName = '';
-  let coords: { lat: number; lng: number } | undefined = undefined;
+  let locationName = fallbackCoords?.name || '';
+  let coords = fallbackCoords ? { lat: fallbackCoords.lat, lng: fallbackCoords.lng } : undefined;
+
   for (const [key, val] of Object.entries(locationMap)) {
     if (t.includes(key)) {
       locationName = key.replace(/\b\w/g, c => c.toUpperCase());
@@ -97,8 +112,13 @@ function smartLocalExtract(text: string): Partial<any> | null {
     }
   }
 
-  if (!coords) {
-    return null; // Do not pretend to know coordinates if not in gazetteer
+  if (!coords && !fallbackCoords) {
+    return null; // Do not pretend to know coordinates if not in gazetteer and no client GPS
+  }
+
+  if (!coords && fallbackCoords) {
+    coords = { lat: fallbackCoords.lat, lng: fallbackCoords.lng };
+    locationName = fallbackCoords.name || `${fallbackCoords.lat.toFixed(4)}, ${fallbackCoords.lng.toFixed(4)}`;
   }
 
   const scaleMatch = t.match(/(\d+)\s*(people|person|family|families|victims|residents)/);
@@ -113,9 +133,9 @@ function smartLocalExtract(text: string): Partial<any> | null {
   };
 
   return {
-    crisisType,
-    location: { name: locationName, ...coords },
-    urgencyReasoning: urgencyMap[crisisType],
+    crisisType: (crisisType || 'food') as any,
+    location: { name: locationName || 'Reported Location', ...(coords || { lat: 26.8428, lng: 75.5614 }) },
+    urgencyReasoning: (crisisType && urgencyMap[crisisType]) || `Emergency assistance required at ${locationName}.`,
     estimatedScale,
     originalLanguage: /[\u0900-\u097F]/.test(text) ? 'Hindi' : 'English',
   };
@@ -682,6 +702,14 @@ app.post('/ingest', upload.single('image'), async (req, res) => {
       return res.status(400).json({ error: 'Provide text or image' });
     }
 
+    const explicitCrisisType = req.body.crisisType ? String(req.body.crisisType).toLowerCase() : undefined;
+
+    // Direct GPS Passthrough & Validation
+    const clientLat = req.body.lat !== undefined && req.body.lat !== '' ? parseFloat(req.body.lat) : undefined;
+    const clientLng = req.body.lng !== undefined && req.body.lng !== '' ? parseFloat(req.body.lng) : undefined;
+    const hasClientGps = typeof clientLat === 'number' && !isNaN(clientLat) && typeof clientLng === 'number' && !isNaN(clientLng);
+    const clientLocCoords = hasClientGps ? { lat: clientLat!, lng: clientLng!, name: req.body.locationName } : undefined;
+
     let extractedData;
     try {
       console.log('🤖 Calling Gemini AI for extraction...');
@@ -690,9 +718,12 @@ app.post('/ingest', upload.single('image'), async (req, res) => {
       if (!extractedData || !extractedData.crisisType || !extractedData.location) {
         throw new Error('Incomplete data from AI');
       }
+      if (explicitCrisisType) {
+        extractedData.crisisType = (explicitCrisisType === 'flood' ? 'water' : explicitCrisisType) as any;
+      }
     } catch (e) {
       console.warn('⚠️ Gemini unavailable or network error — trying smart local extraction.');
-      extractedData = smartLocalExtract(rawText || 'emergency signal');
+      extractedData = smartLocalExtract(rawText || 'emergency signal', explicitCrisisType, clientLocCoords);
       if (extractedData) {
         (extractedData as any).isLocal = true;
       }
@@ -702,11 +733,6 @@ app.post('/ingest', upload.single('image'), async (req, res) => {
       console.warn('⚠️ Rejected: Signal unclear — could not extract crisis data.');
       return res.status(422).json({ error: 'Signal unclear — could not extract crisis data. Please add more detail: location, type, or scale.' });
     }
-
-    // Direct GPS Passthrough & Validation
-    const clientLat = req.body.lat !== undefined && req.body.lat !== '' ? parseFloat(req.body.lat) : undefined;
-    const clientLng = req.body.lng !== undefined && req.body.lng !== '' ? parseFloat(req.body.lng) : undefined;
-    const hasClientGps = typeof clientLat === 'number' && !isNaN(clientLat) && typeof clientLng === 'number' && !isNaN(clientLng);
 
     let finalLat: number | undefined;
     let finalLng: number | undefined;
@@ -730,7 +756,8 @@ app.post('/ingest', upload.single('image'), async (req, res) => {
       });
     }
 
-    const locationStr = `${extractedData.crisisType} ${finalLocationName} ${extractedData.urgencyReasoning}`;
+    const finalCrisisType = (explicitCrisisType || extractedData.crisisType || 'food').toLowerCase();
+    const locationStr = `${finalCrisisType} ${finalLocationName} ${extractedData.urgencyReasoning}`;
 
     let embedding: number[];
     try {
@@ -757,7 +784,7 @@ app.post('/ingest', upload.single('image'), async (req, res) => {
         lat: finalLat,
         lng: finalLng
       },
-      crisisType: (extractedData.crisisType || 'medical') as any,
+      crisisType: (finalCrisisType === 'flood' ? 'water' : finalCrisisType) as any,
       urgencyReasoning: extractedData.urgencyReasoning || 'Immediate assistance required.',
       estimatedScale: extractedData.estimatedScale || 1,
       reportCount: 1,

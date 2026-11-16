@@ -304,21 +304,13 @@ export default function App() {
   const [generatedNgoCode, setGeneratedNgoCode] = useState<string>(() => generate5LetterCode());
   const [isDetectingAdminGps, setIsDetectingAdminGps] = useState<boolean>(false);
 
-  // Manual NGO code edit modal state
-  const [showEditCodeModal, setShowEditCodeModal] = useState<boolean>(false);
-  const [editCodeInput, setEditCodeInput] = useState<string>('');
-  const [editCodeError, setEditCodeError] = useState<string>('');
-  const [isUpdatingCode, setIsUpdatingCode] = useState<boolean>(false);
-
   const handleCategorySelect = (cat: AdminDepartmentCategory) => {
     setLoginDeptCategory(cat);
     if (cat === 'FIRE_DEPT') setLoginDeptName('City Fire & Rescue Station 1');
     else if (cat === 'POLICE_DEPT') setLoginDeptName('Central Police Division');
     else if (cat === 'NGO') {
       setLoginDeptName('Red Cross Emergency Team');
-      if (!generatedNgoCode) {
-        setGeneratedNgoCode(generate5LetterCode());
-      }
+      setGeneratedNgoCode(generate5LetterCode());
     }
     else if (cat === 'MEDICAL_HEALTH') setLoginDeptName('Apex Trauma & Emergency Medical Unit');
     else if (cat === 'DISASTER_MGMT') setLoginDeptName('State Disaster Management Force (SDRF)');
@@ -467,40 +459,6 @@ export default function App() {
     setShowAdminLoginModal(true);
   };
 
-  const handleUpdateNgoCode = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!adminAccount?.id) return;
-    const clean = editCodeInput.trim().toUpperCase().replace(/[^A-Z]/g, '');
-    if (clean.length !== 5) {
-      setEditCodeError('NGO Code must be exactly 5 letters (A-Z).');
-      return;
-    }
-    setIsUpdatingCode(true);
-    setEditCodeError('');
-    try {
-      let res;
-      try {
-        res = await axios.patch(`${API_BASE}/api/admin/auth/account/${adminAccount.id}/code`, { ngoCode: clean });
-      } catch (err: any) {
-        if (err.response?.status === 404 && !err.response?.data?.error) {
-          res = await axios.patch(`${API_BASE}/admin/auth/account/${adminAccount.id}/code`, { ngoCode: clean });
-        } else {
-          throw err;
-        }
-      }
-      const updatedAccount = res.data.account;
-      setAdminAccount(updatedAccount);
-      try {
-        localStorage.setItem(ADMIN_STORAGE_KEY, JSON.stringify(updatedAccount));
-      } catch {}
-      setShowEditCodeModal(false);
-    } catch (err: any) {
-      setEditCodeError(err.response?.data?.error || 'Failed to update code. It may already be in use.');
-    } finally {
-      setIsUpdatingCode(false);
-    }
-  };
-
   const [selectedSectorId, setSelectedSectorId] = useState<string>(() => {
     try {
       const saved = sessionStorage.getItem('command_center_sector_chosen');
@@ -605,6 +563,7 @@ export default function App() {
 
   // New report modal form state
   const [newReportText, setNewReportText] = useState('');
+  const [newReportCategory, setNewReportCategory] = useState<'food' | 'water' | 'medical' | 'shelter' | 'infrastructure'>('food');
   const [newReportImage, setNewReportImage] = useState<File | null>(null);
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
 
@@ -699,27 +658,6 @@ export default function App() {
     }
   };
 
-  const handleEscalate = async (id: string) => {
-    const reason = prompt(
-      'Escalation Reason for NDRF / 112 (e.g. Structural collapse, uncontrolled chemical/fire hazard, swift water rescue):',
-      'Severe hazardous disaster requiring professional NDRF / Fire service intervention.'
-    );
-    if (reason === null) return;
-    try {
-      await axios.patch(`${API_BASE}/needs/${id}/escalate`, { notes: reason });
-      setNeeds((prev) =>
-        prev.map((n) => (n.id === id ? { ...n, status: 'ESCALATED_AUTHORITY' as any } : n))
-      );
-      if (selectedNeed?.id === id) {
-        setSelectedNeed((prev) => (prev ? { ...prev, status: 'ESCALATED_AUTHORITY' as any } : null));
-      }
-      alert('Incident successfully escalated to NDRF / 112 Command.');
-    } catch (e) {
-      console.error('Error escalating incident:', e);
-      alert('Failed to escalate incident.');
-    }
-  };
-
   const handleDispatch = async (needId: string) => {
     setLoadingDispatch(true);
     try {
@@ -774,6 +712,7 @@ export default function App() {
     try {
       const formData = new FormData();
       formData.append('text', newReportText);
+      formData.append('crisisType', newReportCategory);
       if (newReportImage) formData.append('image', newReportImage);
 
       await axios.post(`${API_BASE}/ingest`, formData);
@@ -866,14 +805,12 @@ export default function App() {
 
   // Active metrics scoped to jurisdiction
   const activeCount = scopedNeeds.filter((n) => n.status !== 'RESOLVED' && n.status !== 'FALSE_ALARM').length;
-  const enRouteCount = scopedNeeds.filter(
-    (n) =>
-      n.status !== 'RESOLVED' &&
-      n.status !== 'FALSE_ALARM' &&
-      (n.status === 'EN_ROUTE' ||
-        n.status === 'DISPATCHED' ||
-        (n.enRouteVolunteers && n.enRouteVolunteers.length > 0))
-  ).length;
+  const enRouteCount = scopedNeeds.filter((n) => {
+    if (n.status === 'RESOLVED' || n.status === 'FALSE_ALARM') return false;
+    const hasVols = Array.isArray(n.enRouteVolunteers) && n.enRouteVolunteers.length > 0;
+    const hasDept = Boolean(n.respondingParty);
+    return (n.status === 'EN_ROUTE' || n.status === 'ON_SCENE' || n.responseStatus === 'RESPONDING') && (hasVols || hasDept);
+  }).length;
   const volunteersReady = scopedVolunteers.filter((v) => v.status === 'AVAILABLE').length;
   const resolvedCount = scopedNeeds.filter((n) => n.status === 'RESOLVED').length;
 
@@ -931,11 +868,11 @@ export default function App() {
       {/* Notice for screens smaller than 1024px */}
       <div className="lg:hidden h-screen w-screen bg-[#0E0E10] text-[#F2F2F3] flex flex-col items-center justify-center p-6 text-center font-sans">
         <div className="w-10 h-10 rounded-lg bg-[#26262A] flex items-center justify-center font-semibold text-[15px] mb-4">
-          NP
+          CP
         </div>
         <h2 className="text-[20px] font-semibold mb-2">Open on a larger screen</h2>
         <p className="text-[13px] text-[#8B8B94] max-w-sm">
-          The NaturalPulse Admin Command Center is optimized for desktop displays (1024px and wider). Please switch to a laptop or desktop monitor.
+          The CommunityPulse Admin Command Center is optimized for desktop displays (1024px and wider). Please switch to a laptop or desktop monitor.
         </p>
       </div>
 
@@ -951,10 +888,10 @@ export default function App() {
               className="flex items-center gap-3 px-2 group cursor-pointer hover:opacity-85 transition-opacity"
             >
               <div className="w-8 h-8 rounded-lg bg-[#26262A] text-white flex items-center justify-center font-semibold text-[13px] shrink-0 group-hover:bg-[#34343A] transition-colors">
-                NP
+                CP
               </div>
               <span className="hidden xl:inline text-[15px] font-semibold tracking-tight text-white truncate">
-                NaturalPulse
+                CommunityPulse
               </span>
             </Link>
 
@@ -1090,24 +1027,9 @@ export default function App() {
                         {adminAccount ? `${adminAccount.stationName} • 15km Radius` : 'Dispatcher'}
                       </p>
                       {adminAccount?.ngoCode && (
-                        <div className="mt-1 flex items-center justify-between">
-                          <p className="text-[11px] text-emerald-400 font-mono font-bold">
-                            NGO Code: {adminAccount.ngoCode}
-                          </p>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setShowAvatarMenu(false);
-                              setEditCodeInput(adminAccount.ngoCode || '');
-                              setEditCodeError('');
-                              setShowEditCodeModal(true);
-                            }}
-                            className="text-[10px] text-emerald-400/90 hover:text-white underline underline-offset-2 cursor-pointer ml-1"
-                          >
-                            Edit
-                          </button>
-                        </div>
+                        <p className="text-[11px] text-emerald-400 font-mono mt-1 font-bold">
+                          NGO Code: {adminAccount.ngoCode}
+                        </p>
                       )}
                     </div>
                     <button
@@ -1507,51 +1429,68 @@ export default function App() {
                               </div>
 
                               {/* Response Tracking Status Banner */}
-                              <div className={`p-3 rounded-[8px] border text-[13px] ${
-                                selectedNeed.respondingParty || (selectedNeed.enRouteVolunteers && selectedNeed.enRouteVolunteers.length > 0) || selectedNeed.responseStatus === 'RESPONDING'
-                                  ? 'bg-emerald-950/20 border-emerald-800/40 text-emerald-300'
-                                  : selectedNeed.status === 'RESOLVED'
-                                  ? 'bg-zinc-900 border-zinc-700 text-zinc-300'
-                                  : 'bg-amber-950/20 border-amber-800/40 text-amber-300'
-                              }`}>
-                                <div className="flex items-center justify-between font-medium">
-                                  <span className="flex items-center gap-1.5">
-                                    <span className={`w-2 h-2 rounded-full ${
-                                      selectedNeed.respondingParty || (selectedNeed.enRouteVolunteers && selectedNeed.enRouteVolunteers.length > 0) || selectedNeed.responseStatus === 'RESPONDING'
-                                        ? 'bg-emerald-400 animate-pulse'
-                                        : selectedNeed.status === 'RESOLVED'
-                                        ? 'bg-zinc-400'
-                                        : 'bg-amber-400'
-                                    }`} />
-                                    {selectedNeed.respondingParty || (selectedNeed.enRouteVolunteers && selectedNeed.enRouteVolunteers.length > 0) || selectedNeed.responseStatus === 'RESPONDING'
-                                      ? 'Response Unit Active'
-                                      : selectedNeed.status === 'RESOLVED'
-                                      ? 'Incident Resolved'
-                                      : 'Awaiting Response Unit'}
-                                  </span>
-                                  <span className="text-[11px] opacity-80 uppercase tracking-wider font-mono">
-                                    {selectedNeed.responseStatus || (selectedNeed.enRouteVolunteers && selectedNeed.enRouteVolunteers.length > 0 ? 'RESPONDING' : 'PENDING')}
-                                  </span>
-                                </div>
-                                {(selectedNeed.respondingParty || (selectedNeed.enRouteVolunteers && selectedNeed.enRouteVolunteers.length > 0)) && (
-                                  <div className="mt-1.5 text-[12px] text-white/90">
-                                    Responding: <span className="font-semibold text-white">{selectedNeed.respondingParty || selectedNeed.enRouteVolunteers?.[0]?.name}</span>
-                                    {selectedNeed.enRouteVolunteers?.[0]?.etaMinutes && (
-                                      <span className="ml-2 text-[#8B8B94] font-mono">
-                                        (ETA ~{selectedNeed.enRouteVolunteers[0].etaMinutes}m)
-                                      </span>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
+                              {(() => {
+                                const hasVols = Array.isArray(selectedNeed.enRouteVolunteers) && selectedNeed.enRouteVolunteers.length > 0;
+                                const isEnRoute = (selectedNeed.status === 'EN_ROUTE' || selectedNeed.status === 'ON_SCENE' || selectedNeed.responseStatus === 'RESPONDING') && (hasVols || Boolean(selectedNeed.respondingParty));
+                                const responderLabel = selectedNeed.respondingParty || selectedNeed.enRouteVolunteers?.[0]?.name;
 
-                              {/* Description */}
-                              <div>
-                                <span className="text-[#8B8B94] text-[11px] block mb-1">Incident Report Details</span>
-                                <p className="text-[#F2F2F3] text-[13px] leading-relaxed">
-                                  {selectedNeed.urgencyReasoning || 'Citizen distress call recorded.'}
-                                </p>
-                              </div>
+                                if (selectedNeed.status === 'RESOLVED') {
+                                  return (
+                                    <div className="p-3 rounded-[8px] border border-zinc-700 bg-zinc-900 text-zinc-300 text-[13px]">
+                                      <div className="flex items-center justify-between font-medium">
+                                        <span className="flex items-center gap-1.5">
+                                          <span className="w-2 h-2 rounded-full bg-zinc-400" />
+                                          Incident Resolved
+                                        </span>
+                                        <span className="text-[11px] opacity-80 uppercase tracking-wider font-mono">
+                                          RESOLVED
+                                        </span>
+                                      </div>
+                                    </div>
+                                  );
+                                }
+
+                                if (isEnRoute && responderLabel) {
+                                  return (
+                                    <div className="p-3 rounded-[8px] border border-emerald-800/40 bg-emerald-950/20 text-emerald-300 text-[13px]">
+                                      <div className="flex items-center justify-between font-medium">
+                                        <span className="flex items-center gap-1.5">
+                                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                                          Rescue Team Active
+                                        </span>
+                                        <span className="text-[11px] opacity-80 uppercase tracking-wider font-mono">
+                                          {selectedNeed.status === 'ON_SCENE' ? 'ON SCENE' : 'EN ROUTE'}
+                                        </span>
+                                      </div>
+                                      <div className="mt-1.5 text-[12px] text-white/90">
+                                        Responding: <span className="font-semibold text-white">{responderLabel}</span>
+                                        {selectedNeed.enRouteVolunteers?.[0]?.etaMinutes && (
+                                          <span className="ml-2 text-[#8B8B94] font-mono">
+                                            (ETA ~{selectedNeed.enRouteVolunteers[0].etaMinutes}m)
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                }
+
+                                return (
+                                  <div className="p-3 rounded-[8px] border border-amber-800/40 bg-amber-950/20 text-amber-300 text-[13px]">
+                                    <div className="flex items-center justify-between font-medium">
+                                      <span className="flex items-center gap-1.5">
+                                        <span className="w-2 h-2 rounded-full bg-amber-400" />
+                                        Awaiting Rescue Team Dispatch
+                                      </span>
+                                      <span className="text-[11px] opacity-80 uppercase tracking-wider font-mono">
+                                        PENDING
+                                      </span>
+                                    </div>
+                                    <p className="mt-1 text-[12px] text-amber-200/80">
+                                      No unit is currently en route. Click "Send Team for Rescue" below to dispatch immediately.
+                                    </p>
+                                  </div>
+                                );
+                              })()}
 
                               {/* Meta List */}
                               <div className="border border-[#26262A] rounded-[8px] p-3 space-y-2 bg-[#0E0E10] text-[13px]">
@@ -1635,7 +1574,7 @@ export default function App() {
                                       <span className="text-[11px] text-[#8B8B94] tabular-nums block">
                                         {new Date(evt.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                       </span>
-                                      <span className="text-white text-[13px]">{evt.action || (evt as any).description}</span>
+                                      <span className="text-white text-[13px]">{evt.description}</span>
                                     </div>
                                   ))}
                                 </div>
@@ -1644,72 +1583,31 @@ export default function App() {
 
                             {/* Sticky Footer Buttons (depend strictly on status) */}
                             <div className="p-4 border-t border-[#26262A] bg-[#141416] shrink-0">
-                              {(selectedNeed.status === 'UNVERIFIED' || selectedNeed.status === 'OPEN') && (
+                              {/* OPEN / UNVERIFIED / VERIFIED / ACTIVE - Dispatch Team for Rescue available on all active statuses */}
+                              {(selectedNeed.status === 'OPEN' || selectedNeed.status === 'UNVERIFIED' || selectedNeed.status === 'VERIFIED') && (
                                 <div className="space-y-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDispatch(selectedNeed.id)}
+                                    disabled={loadingDispatch}
+                                    className="w-full h-10 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-[8px] text-[13px] transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-lg shadow-emerald-950/50"
+                                  >
+                                    🚒 {loadingDispatch ? 'Dispatching Rescue Team...' : 'Send Team for Rescue'}
+                                  </button>
                                   <div className="flex gap-2">
                                     <button
                                       type="button"
-                                      onClick={() => handleVerify(selectedNeed.id, 'VERIFIED')}
-                                      className="flex-1 h-10 bg-white hover:bg-zinc-200 text-black font-semibold rounded-[8px] text-[13px] transition-colors cursor-pointer"
+                                      onClick={() => navigate('/admin/volunteers')}
+                                      className="flex-1 h-10 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-white rounded-[8px] text-[13px] transition-colors cursor-pointer"
                                     >
-                                      Verify incident
+                                      Choose volunteer
                                     </button>
                                     <button
                                       type="button"
                                       onClick={() => handleVerify(selectedNeed.id, 'REJECTED_SPAM')}
-                                      className="h-10 px-4 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-[#8B8B94] hover:text-white rounded-[8px] text-[13px] transition-colors cursor-pointer"
+                                      className="h-10 px-3 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-[#8B8B94] hover:text-white rounded-[8px] text-[13px] transition-colors cursor-pointer"
                                     >
-                                      Reject as false alarm
-                                    </button>
-                                  </div>
-                                  <div className="flex gap-2">
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDispatch(selectedNeed.id)}
-                                      disabled={loadingDispatch}
-                                      className="flex-1 h-10 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-[8px] text-[13px] transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                                    >
-                                      🚀 {loadingDispatch ? 'Dispatching Support...' : 'Dispatch Support Unit'}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleEscalate(selectedNeed.id)}
-                                      className="h-10 px-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 font-semibold rounded-[8px] text-[12px] transition-colors flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
-                                    >
-                                      🚨 Escalate 112
-                                    </button>
-                                  </div>
-                                </div>
-                              )}
-
-                              {selectedNeed.status === 'ESCALATED_AUTHORITY' && (
-                                <div className="p-3 bg-red-950/40 border border-red-800/60 rounded-[8px] space-y-1 text-center">
-                                  <span className="font-semibold text-red-300 text-[13px] block">
-                                    🚨 Escalated to NDRF & 112 Emergency Dispatch
-                                  </span>
-                                  <span className="text-[11px] text-red-400/80 block">
-                                    Civilian volunteers restricted due to high-risk structural, fire, or deep water hazard.
-                                  </span>
-                                </div>
-                              )}
-
-                              {selectedNeed.status === 'VERIFIED' && (
-                                <div className="space-y-2">
-                                  <div className="flex gap-2">
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDispatch(selectedNeed.id)}
-                                      disabled={loadingDispatch}
-                                      className="flex-1 h-10 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-[8px] text-[13px] transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-950/50"
-                                    >
-                                      🚀 {loadingDispatch ? 'Dispatching Support...' : 'Dispatch Support Unit'}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => navigate('/admin/volunteers')}
-                                      className="h-10 px-4 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-white rounded-[8px] text-[13px] transition-colors cursor-pointer"
-                                    >
-                                      Choose volunteer
+                                      Reject
                                     </button>
                                   </div>
                                 </div>
@@ -1830,6 +1728,23 @@ export default function App() {
             </div>
 
             <form onSubmit={handleCreateReport} className="space-y-4 text-[13px]">
+              <div>
+                <label className="block text-[#8B8B94] font-medium mb-1">
+                  Crisis Category *
+                </label>
+                <select
+                  value={newReportCategory}
+                  onChange={(e) => setNewReportCategory(e.target.value as any)}
+                  className="w-full h-10 bg-[#0E0E10] border border-[#26262A] rounded-[8px] px-3 text-white focus:outline-none focus:border-zinc-500"
+                >
+                  <option value="food">🍲 Food & Ration Distribution</option>
+                  <option value="water">💧 Clean Water & Flood Crisis</option>
+                  <option value="medical">🚑 Medical Emergency</option>
+                  <option value="shelter">⛺ Emergency Shelter & Relocation</option>
+                  <option value="infrastructure">🏗️ Structural & Infrastructure Hazard</option>
+                </select>
+              </div>
+
               <div>
                 <label className="block text-[#8B8B94] font-medium mb-1">
                   Incident Signal Text
@@ -2023,18 +1938,18 @@ export default function App() {
       )}
       {/* ADMIN DEPARTMENT LOGIN & REGISTRATION GATE */}
       {showAdminLoginModal && (
-        <div className="fixed inset-0 z-[2500] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[2500] bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-[#141416] border border-[#26262A] rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-200 max-h-[92vh] overflow-y-auto">
             {/* Header */}
-            <div className="text-center space-y-1.5 pb-2 border-b border-[#26262A]">
-              <div className="inline-flex items-center justify-center w-11 h-11 rounded-xl bg-[#1E1E22] border border-[#2E2E34] text-white font-bold text-sm mb-1 shadow-inner">
-                NP
+            <div className="text-center space-y-1.5 pb-2">
+              <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-tr from-sky-600 to-indigo-600 text-white font-bold text-xl mb-1 shadow-lg shadow-sky-950">
+                🛡️
               </div>
               <h2 className="text-[20px] font-semibold text-white tracking-tight">
                 Command Center Secure Access
               </h2>
               <p className="text-[13px] text-[#8B8B94] max-w-md mx-auto">
-                Official emergency department & NGO response coordination.
+                Official emergency department & NGO team authentication.
               </p>
             </div>
 
@@ -2273,30 +2188,23 @@ export default function App() {
                     {!isNgoSignInMode ? (
                       <div className="space-y-2">
                         <p className="text-[11px] text-emerald-200/80">
-                          Your NGO team code. Share this code with your volunteers during signup to link them directly to your command unit:
+                          When your NGO registers, you get a unique 5-letter code. Share this code with your NGO members during volunteer signup so only your team shows in your dashboard:
                         </p>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="text"
-                            maxLength={5}
-                            value={generatedNgoCode}
-                            onChange={(e) => setGeneratedNgoCode(e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))}
-                            placeholder="CODE"
-                            className="w-32 h-10 bg-[#0E0E10] border border-emerald-500/60 rounded-xl px-3 text-center text-emerald-300 font-mono tracking-[0.2em] text-lg font-black uppercase focus:outline-none focus:border-emerald-300"
-                          />
+                        <div className="flex items-center gap-3">
+                          <div className="px-3.5 py-1.5 bg-emerald-900/60 border border-emerald-400/50 rounded-xl text-center">
+                            <span className="font-mono text-xl font-black text-emerald-300 tracking-[0.25em]">
+                              {generatedNgoCode}
+                            </span>
+                          </div>
                           <button
                             type="button"
                             onClick={() => setGeneratedNgoCode(generate5LetterCode())}
-                            className="h-10 px-3 bg-[#0E0E10] border border-[#26262A] hover:border-zinc-500 rounded-xl text-[12px] text-emerald-400 hover:text-emerald-300 flex items-center gap-1.5 cursor-pointer transition-colors"
-                            title="Generate a random 5-letter code"
+                            className="text-[11px] text-emerald-400 hover:text-emerald-300 underline underline-offset-2 flex items-center gap-1 cursor-pointer"
                           >
                             <ArrowPathIcon className="w-3.5 h-3.5" />
-                            <span>Randomize</span>
+                            <span>Generate another</span>
                           </button>
                         </div>
-                        <p className="text-[10px] text-[#8B8B94]">
-                          You can keep this code or type your custom 5-letter code. Once registered, it is permanently locked and only manually changeable by you.
-                        </p>
                       </div>
                     ) : (
                       <div className="space-y-1">
@@ -2328,80 +2236,6 @@ export default function App() {
                 </div>
               </form>
             )}
-          </div>
-        </div>
-      )}
-
-      {/* EDIT NGO TEAM CODE MODAL */}
-      {showEditCodeModal && (
-        <div className="fixed inset-0 z-[2600] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-[#141416] border border-[#26262A] rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
-            <div className="text-center space-y-1.5 pb-2 border-b border-[#26262A]">
-              <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-emerald-950/60 border border-emerald-500/30 text-emerald-400 font-bold text-sm mb-1">
-                NGO
-              </div>
-              <h2 className="text-[18px] font-semibold text-white tracking-tight">
-                Update NGO Team Code
-              </h2>
-              <p className="text-[13px] text-[#8B8B94]">
-                This 5-letter code links new field volunteers to {adminAccount?.departmentName || 'your organization'}.
-              </p>
-            </div>
-
-            {editCodeError && (
-              <div className="p-3 rounded-xl bg-red-950/60 border border-red-500/40 text-red-200 text-[12px] flex items-center gap-2">
-                <span>⚠️</span>
-                <span>{editCodeError}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleUpdateNgoCode} className="space-y-4 text-[13px]">
-              <div>
-                <label className="block text-[#8B8B94] font-medium mb-1">
-                  New 5-Letter Code *
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    required
-                    maxLength={5}
-                    value={editCodeInput}
-                    onChange={(e) => setEditCodeInput(e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))}
-                    placeholder="REDCX"
-                    className="w-full h-11 bg-[#0E0E10] border border-[#26262A] focus:border-emerald-400 rounded-xl px-3 text-center text-emerald-300 font-mono tracking-[0.25em] text-xl font-black uppercase focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setEditCodeInput(generate5LetterCode())}
-                    className="h-11 px-3 bg-[#0E0E10] border border-[#26262A] hover:border-zinc-500 rounded-xl text-[12px] text-emerald-400 hover:text-emerald-300 flex items-center gap-1 cursor-pointer shrink-0"
-                    title="Generate a random 5-letter code"
-                  >
-                    <ArrowPathIcon className="w-3.5 h-3.5" />
-                    <span>Random</span>
-                  </button>
-                </div>
-                <p className="text-[11px] text-[#8B8B94] mt-1.5">
-                  Must be exactly 5 uppercase letters (A-Z).
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowEditCodeModal(false)}
-                  className="flex-1 h-10 bg-[#1E1E22] hover:bg-[#26262A] text-white font-medium rounded-xl text-[13px] transition-colors cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isUpdatingCode}
-                  className="flex-1 h-10 bg-emerald-500 hover:bg-emerald-400 text-black font-semibold rounded-xl text-[13px] transition-colors cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {isUpdatingCode ? 'Saving...' : 'Save New Code'}
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}
