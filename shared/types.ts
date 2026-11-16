@@ -12,7 +12,8 @@ export type IncidentStatus =
   | 'EN_ROUTE'
   | 'ON_SCENE'
   | 'RESOLVED'
-  | 'FALSE_ALARM';
+  | 'FALSE_ALARM'
+  | 'ESCALATED_AUTHORITY';
 
 export interface EnRouteResponder {
   id: string;

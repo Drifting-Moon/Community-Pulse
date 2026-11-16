@@ -394,6 +394,31 @@ export default function VolunteerApp() {
   };
 
   const handleMarkOnScene = async (needId: string) => {
+    const target = needs.find((n) => n.id === needId);
+
+    // GPS Check: verify responder is within 500m before marking arrived
+    if (target && target.location?.lat && target.location?.lng && 'geolocation' in navigator) {
+      try {
+        const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 6000, enableHighAccuracy: true });
+        });
+        const distKm = haversineDistance(
+          pos.coords.latitude,
+          pos.coords.longitude,
+          target.location.lat,
+          target.location.lng
+        );
+        if (distKm > 0.5) {
+          const confirmFar = confirm(
+            `⚠️ GPS Proximity Notice:\nYour current GPS is ${(distKm * 1000).toFixed(0)}m away from the crisis location.\n\nConfirm you have physically arrived on scene?`
+          );
+          if (!confirmFar) return;
+        }
+      } catch (e) {
+        console.warn('GPS proximity check skipped:', e);
+      }
+    }
+
     try {
       await axios.post(`${API_BASE}/dispatch/on-scene`, {
         needId,
@@ -479,7 +504,7 @@ export default function VolunteerApp() {
             >
               <span className="w-2 h-2 rounded-full bg-[#2E9E6B]"></span>
               <h1 className="text-[15px] font-semibold text-gray-900 tracking-tight">
-                CommunityPulse · Volunteer Field
+                NaturalPulse · Volunteer Field
               </h1>
             </a>
           </div>

@@ -13,7 +13,7 @@ export default function CitizenLayout() {
             title="Return to Main Portal Gateway"
             className="font-semibold text-[15px] tracking-tight text-gray-900 hover:text-red-600 transition-colors"
           >
-            CommunityPulse
+            NaturalPulse
           </Link>
 
           <div className="flex items-center gap-6">

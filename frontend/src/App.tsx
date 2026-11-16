@@ -426,6 +426,27 @@ export default function App() {
     }
   };
 
+  const handleEscalate = async (id: string) => {
+    const reason = prompt(
+      'Escalation Reason for NDRF / 112 (e.g. Structural collapse, uncontrolled chemical/fire hazard, swift water rescue):',
+      'Severe hazardous disaster requiring professional NDRF / Fire service intervention.'
+    );
+    if (reason === null) return;
+    try {
+      await axios.patch(`${API_BASE}/needs/${id}/escalate`, { notes: reason });
+      setNeeds((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, status: 'ESCALATED_AUTHORITY' as any } : n))
+      );
+      if (selectedNeed?.id === id) {
+        setSelectedNeed((prev) => (prev ? { ...prev, status: 'ESCALATED_AUTHORITY' as any } : null));
+      }
+      alert('Incident successfully escalated to NDRF / 112 Command.');
+    } catch (e) {
+      console.error('Error escalating incident:', e);
+      alert('Failed to escalate incident.');
+    }
+  };
+
   const handleDispatch = async (needId: string) => {
     setLoadingDispatch(true);
     try {
@@ -497,7 +518,14 @@ export default function App() {
 
   // Active metrics scoped to jurisdiction
   const activeCount = scopedNeeds.filter((n) => n.status !== 'RESOLVED' && n.status !== 'FALSE_ALARM').length;
-  const enRouteCount = scopedNeeds.filter((n) => n.status === 'EN_ROUTE' || (n.enRouteVolunteers && n.enRouteVolunteers.length > 0)).length;
+  const enRouteCount = scopedNeeds.filter(
+    (n) =>
+      n.status !== 'RESOLVED' &&
+      n.status !== 'FALSE_ALARM' &&
+      (n.status === 'EN_ROUTE' ||
+        n.status === 'DISPATCHED' ||
+        (n.enRouteVolunteers && n.enRouteVolunteers.length > 0))
+  ).length;
   const volunteersReady = volunteers.filter((v) => v.status === 'AVAILABLE').length;
   const resolvedCount = scopedNeeds.filter((n) => n.status === 'RESOLVED').length;
 
@@ -555,11 +583,11 @@ export default function App() {
       {/* Notice for screens smaller than 1024px */}
       <div className="lg:hidden h-screen w-screen bg-[#0E0E10] text-[#F2F2F3] flex flex-col items-center justify-center p-6 text-center font-sans">
         <div className="w-10 h-10 rounded-lg bg-[#26262A] flex items-center justify-center font-semibold text-[15px] mb-4">
-          CP
+          NP
         </div>
         <h2 className="text-[20px] font-semibold mb-2">Open on a larger screen</h2>
         <p className="text-[13px] text-[#8B8B94] max-w-sm">
-          The CommunityPulse Admin Command Center is optimized for desktop displays (1024px and wider). Please switch to a laptop or desktop monitor.
+          The NaturalPulse Admin Command Center is optimized for desktop displays (1024px and wider). Please switch to a laptop or desktop monitor.
         </p>
       </div>
 
@@ -575,10 +603,10 @@ export default function App() {
               className="flex items-center gap-3 px-2 group cursor-pointer hover:opacity-85 transition-opacity"
             >
               <div className="w-8 h-8 rounded-lg bg-[#26262A] text-white flex items-center justify-center font-semibold text-[13px] shrink-0 group-hover:bg-[#34343A] transition-colors">
-                CP
+                NP
               </div>
               <span className="hidden xl:inline text-[15px] font-semibold tracking-tight text-white truncate">
-                CommunityPulse
+                NaturalPulse
               </span>
             </Link>
 
@@ -1097,7 +1125,7 @@ export default function App() {
                                       <span className="text-[11px] text-[#8B8B94] tabular-nums block">
                                         {new Date(evt.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                       </span>
-                                      <span className="text-white text-[13px]">{evt.description}</span>
+                                      <span className="text-white text-[13px]">{evt.action || (evt as any).description}</span>
                                     </div>
                                   ))}
                                 </div>
@@ -1106,22 +1134,42 @@ export default function App() {
 
                             {/* Sticky Footer Buttons (depend strictly on status) */}
                             <div className="p-4 border-t border-[#26262A] bg-[#141416] shrink-0">
-                              {selectedNeed.status === 'UNVERIFIED' && (
-                                <div className="flex gap-2">
+                              {(selectedNeed.status === 'UNVERIFIED' || selectedNeed.status === 'OPEN') && (
+                                <div className="space-y-2">
+                                  <div className="flex gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleVerify(selectedNeed.id, 'VERIFIED')}
+                                      className="flex-1 h-10 bg-white hover:bg-zinc-200 text-black font-semibold rounded-[8px] text-[13px] transition-colors"
+                                    >
+                                      Verify incident
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleVerify(selectedNeed.id, 'REJECTED_SPAM')}
+                                      className="h-10 px-4 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-[#8B8B94] hover:text-white rounded-[8px] text-[13px] transition-colors"
+                                    >
+                                      Reject as false alarm
+                                    </button>
+                                  </div>
                                   <button
                                     type="button"
-                                    onClick={() => handleVerify(selectedNeed.id, 'VERIFIED')}
-                                    className="flex-1 h-10 bg-white hover:bg-zinc-200 text-black font-semibold rounded-[8px] text-[13px] transition-colors"
+                                    onClick={() => handleEscalate(selectedNeed.id)}
+                                    className="w-full h-9 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 font-semibold rounded-[8px] text-[12px] transition-colors flex items-center justify-center gap-1.5"
                                   >
-                                    Verify incident
+                                    🚨 Escalate to 112 / NDRF (High-Risk Hazard)
                                   </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleVerify(selectedNeed.id, 'REJECTED_SPAM')}
-                                    className="h-10 px-4 bg-[#141416] hover:bg-[#1A1A1D] border border-[#26262A] text-[#8B8B94] hover:text-white rounded-[8px] text-[13px] transition-colors"
-                                  >
-                                    Reject as false alarm
-                                  </button>
+                                </div>
+                              )}
+
+                              {selectedNeed.status === 'ESCALATED_AUTHORITY' && (
+                                <div className="p-3 bg-red-950/40 border border-red-800/60 rounded-[8px] space-y-1 text-center">
+                                  <span className="font-semibold text-red-300 text-[13px] block">
+                                    🚨 Escalated to NDRF & 112 Emergency Dispatch
+                                  </span>
+                                  <span className="text-[11px] text-red-400/80 block">
+                                    Civilian volunteers restricted due to high-risk structural, fire, or deep water hazard.
+                                  </span>
                                 </div>
                               )}
 
@@ -1457,7 +1505,7 @@ export default function App() {
           <div className="bg-[#141416] border border-[#26262A] rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-200">
             <div className="text-center space-y-1.5 pb-2 border-b border-[#26262A]">
               <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-[#26262A] text-white font-bold text-sm mb-2 shadow-inner">
-                CP
+                NP
               </div>
               <h2 className="text-[18px] font-semibold text-white tracking-tight">
                 Select Command Sector

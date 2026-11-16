@@ -239,7 +239,7 @@ export default function VoiceAssistant({ isOpen, onClose, apiBase }: VoiceAssist
 
   const speakGreeting = useCallback(() => {
     executeSpeech(
-      "Namaste. Welcome to CommunityPulse Emergency Reporter.",
+      "Namaste. Welcome to NaturalPulse Emergency Reporter.",
       'en-IN',
       () => {
         if (stepRef.current === -2) {

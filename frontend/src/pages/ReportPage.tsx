@@ -37,6 +37,8 @@ export default function ReportPage() {
   const [isRecording, setIsRecording] = useState(false);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [detectedLocation, setDetectedLocation] = useState<{ lat: number; lng: number; name: string } | null>(null);
+  const [isDetectingLocation, setIsDetectingLocation] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
   const [isEditingLocation, setIsEditingLocation] = useState(false);
   const [manualAddress, setManualAddress] = useState('');
 
@@ -56,23 +58,68 @@ export default function ReportPage() {
     };
   }, []);
 
-  // Detect GPS on mount
-  useEffect(() => {
-    if ('geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          setDetectedLocation({
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude,
-            name: `${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`
-          });
-        },
-        () => {
-          setDetectedLocation({ lat: 19.076, lng: 72.8777, name: 'Mumbai Metro Area' });
-        },
-        { timeout: 8000 }
-      );
+  // Function to pull high-accuracy current GPS location
+  const pullCurrentLocation = () => {
+    if (!('geolocation' in navigator)) {
+      setLocationError('Geolocation is not supported by your browser.');
+      return;
     }
+    setIsDetectingLocation(true);
+    setLocationError(null);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        let displayName = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+
+        try {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=14&addressdetails=1`,
+            { headers: { 'Accept-Language': 'en' } }
+          );
+          if (res.ok) {
+            const data = await res.json();
+            const addr = data.address || {};
+            const place =
+              addr.suburb ||
+              addr.neighbourhood ||
+              addr.city ||
+              addr.town ||
+              addr.village ||
+              addr.county ||
+              data.display_name?.split(',')[0];
+            if (place) {
+              displayName = `${place} (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+            }
+          }
+        } catch {
+          // Keep coords as displayName
+        }
+
+        setDetectedLocation({
+          lat,
+          lng,
+          name: displayName
+        });
+        setIsDetectingLocation(false);
+      },
+      (err) => {
+        setIsDetectingLocation(false);
+        let msg = 'Unable to acquire location.';
+        if (err.code === err.PERMISSION_DENIED) {
+          msg = 'Location permission denied. Please allow GPS access in your browser or enter address manually.';
+        } else if (err.code === err.TIMEOUT) {
+          msg = 'Location request timed out. Please try again or enter address manually.';
+        }
+        setLocationError(msg);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
+
+  // Attempt initial GPS lock on mount
+  useEffect(() => {
+    pullCurrentLocation();
   }, []);
 
   // Speech Recognition
@@ -344,32 +391,81 @@ export default function ReportPage() {
 
         {/* Step 3: Location */}
         <section className="space-y-3">
-          <h2 className="text-[20px] font-semibold text-gray-900">Location</h2>
-          <div className="border border-gray-200 rounded-xl bg-white p-3.5 flex items-center justify-between text-[15px]">
-            <div className="flex items-center gap-2.5 overflow-hidden">
-              <MapPinIcon className="w-5 h-5 text-gray-400 shrink-0" />
-              <span className="text-gray-800 truncate">
-                {manualAddress || detectedLocation?.name || 'Acquiring GPS location...'}
-              </span>
-            </div>
-
+          <div className="flex items-center justify-between">
+            <h2 className="text-[20px] font-semibold text-gray-900">Location</h2>
             <button
               type="button"
               onClick={() => setIsEditingLocation((prev) => !prev)}
-              className="text-[13px] text-gray-600 hover:text-gray-900 font-medium ml-4 shrink-0"
+              className="text-[13px] text-gray-600 hover:text-gray-900 font-medium"
             >
-              {isEditingLocation ? 'Done' : 'Change'}
+              {isEditingLocation ? 'Done' : manualAddress ? 'Change manual address' : 'Enter address manually'}
             </button>
           </div>
 
+          <div className="border border-gray-200 rounded-xl bg-white p-3.5 flex items-center justify-between text-[15px]">
+            <div className="flex items-center gap-2.5 overflow-hidden">
+              <MapPinIcon className={`w-5 h-5 shrink-0 ${detectedLocation || manualAddress ? 'text-[#E5383B]' : 'text-gray-400'}`} />
+              <span className={`truncate ${manualAddress || detectedLocation ? 'text-gray-900 font-medium' : 'text-gray-400'}`}>
+                {manualAddress
+                  ? manualAddress
+                  : isDetectingLocation
+                  ? 'Acquiring GPS location...'
+                  : detectedLocation?.name || 'No location set'}
+              </span>
+            </div>
+
+            {detectedLocation && !manualAddress && (
+              <span className="text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 shrink-0">
+                GPS Locked
+              </span>
+            )}
+          </div>
+
+          {/* Action Row: Pull GPS directly */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={pullCurrentLocation}
+              disabled={isDetectingLocation}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors border border-gray-200 disabled:opacity-50"
+            >
+              <MapPinIcon className="w-4 h-4 text-[#E5383B]" />
+              <span>{isDetectingLocation ? 'Acquiring GPS...' : '📍 Pull current GPS location'}</span>
+            </button>
+
+            {detectedLocation && (
+              <button
+                type="button"
+                onClick={() => {
+                  setDetectedLocation(null);
+                  setManualAddress('');
+                }}
+                className="text-[12px] text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
+          {locationError && (
+            <p className="text-[12px] text-amber-700 bg-amber-50 border border-amber-200 p-2.5 rounded-lg">
+              {locationError}
+            </p>
+          )}
+
           {isEditingLocation && (
-            <input
-              type="text"
-              value={manualAddress}
-              onChange={(e) => setManualAddress(e.target.value)}
-              placeholder="Enter street address, building or landmark"
-              className="w-full h-11 px-3.5 border border-gray-200 rounded-xl text-[15px] text-gray-900 focus:outline-none focus:border-gray-400"
-            />
+            <div className="space-y-1">
+              <input
+                type="text"
+                value={manualAddress}
+                onChange={(e) => setManualAddress(e.target.value)}
+                placeholder="Enter street address, building or landmark"
+                className="w-full h-11 px-3.5 border border-gray-200 rounded-xl text-[15px] text-gray-900 focus:outline-none focus:border-gray-400"
+              />
+              <p className="text-[11px] text-gray-500">
+                Typed address overrides GPS coordinates for this dispatch.
+              </p>
+            </div>
           )}
         </section>
 

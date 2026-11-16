@@ -9,6 +9,8 @@ import {
 } from '@heroicons/react/24/outline';
 import type { NeedEntity } from '../types';
 
+const API_BASE = import.meta.env.VITE_API_BASE || '';
+
 export default function CitizenTrackerPage() {
   const { ticketId } = useParams<{ ticketId?: string }>();
   const navigate = useNavigate();
@@ -16,29 +18,30 @@ export default function CitizenTrackerPage() {
   const [loading, setLoading] = useState(false);
   const [incident, setIncident] = useState<NeedEntity | null>(null);
 
-  const fetchTicket = async (id: string) => {
-    if (!id.trim()) return;
-    setLoading(true);
+  const fetchTicket = async (id: string, isSilent = false) => {
+    const cleanId = (id || '').replace(/^[#]/, '').trim();
+    if (!cleanId) return;
+    if (!isSilent) setLoading(true);
     try {
-      const res = await axios.get(`/needs/${id.trim()}`);
+      const res = await axios.get(`${API_BASE}/needs/${cleanId}`);
       if (res.data && !res.data.error) {
         setIncident(res.data);
       }
     } catch {
       // Fallback: search in list
       try {
-        const listRes = await axios.get('/needs');
+        const listRes = await axios.get(`${API_BASE}/needs`);
         const found = (listRes.data || []).find(
           (n: NeedEntity) =>
-            n.id.toLowerCase() === id.toLowerCase() ||
-            (n.ticketCode && n.ticketCode.toLowerCase() === id.toLowerCase())
+            n.id.toLowerCase() === cleanId.toLowerCase() ||
+            (n.ticketCode && n.ticketCode.replace(/^[#]/, '').toLowerCase() === cleanId.toLowerCase())
         );
         if (found) setIncident(found);
       } catch (e) {
         console.error('Ticket fetch error:', e);
       }
     } finally {
-      setLoading(false);
+      if (!isSilent) setLoading(false);
     }
   };
 
@@ -48,7 +51,7 @@ export default function CitizenTrackerPage() {
       fetchTicket(ticketId);
     } else {
       // Load most recent active report if none specified
-      axios.get('/needs').then((res) => {
+      axios.get(`${API_BASE}/needs`).then((res) => {
         if (res.data && res.data.length > 0) {
           const first = res.data[0];
           setIncident(first);
@@ -58,16 +61,32 @@ export default function CitizenTrackerPage() {
     }
   }, [ticketId]);
 
+  // Live polling for updates every 4 seconds while tracking
+  useEffect(() => {
+    const target = ticketId || (incident ? (incident.ticketCode || incident.id) : null);
+    if (!target) return;
+
+    const interval = setInterval(() => {
+      fetchTicket(target, true);
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [ticketId, incident?.id, incident?.ticketCode]);
+
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!searchInput.trim()) return;
-    navigate(`/citizen/track/${searchInput.trim()}`);
-    fetchTicket(searchInput.trim());
+    const clean = searchInput.replace(/^[#]/, '').trim();
+    if (!clean) return;
+    navigate(`/citizen/track/${clean}`);
+    fetchTicket(clean);
   };
+
+  const isVerified =
+    incident?.verificationStatus === 'VERIFIED' ||
+    ['VERIFIED', 'DISPATCHED', 'EN_ROUTE', 'ON_SCENE', 'RESOLVED'].includes(incident?.status || '');
 
   const steps = [
     { label: 'Submitted', done: true },
-    { label: 'Verified', done: incident?.status !== 'UNVERIFIED' && incident?.status !== 'FALSE_ALARM' },
+    { label: 'Verified', done: isVerified },
     { 
       label: 'Dispatched', 
       done: ['DISPATCHED', 'EN_ROUTE', 'ON_SCENE', 'RESOLVED'].includes(incident?.status || '') 
@@ -211,8 +230,8 @@ export default function CitizenTrackerPage() {
                 <span className="font-semibold text-gray-900 block">Resolution Confirmation</span>
                 <p className="text-gray-600">{incident.proofOfWork.notes}</p>
                 <div className="flex items-center gap-4 text-gray-500 pt-1 border-t border-gray-200">
-                  <span>Assisted: {incident.proofOfWork.casualtiesAssisted} people</span>
-                  <span>By: {incident.proofOfWork.submittedByName}</span>
+                  <span>Assisted: {incident.proofOfWork.casualtiesAssisted || 0} people</span>
+                  <span>By: {incident.proofOfWork.volunteerName || (incident.proofOfWork as any).submittedByName || 'Field Responder'}</span>
                 </div>
               </div>
             )}
@@ -271,7 +290,9 @@ export default function CitizenTrackerPage() {
                       <div className="text-gray-500 text-[11px] tabular-nums">
                         {new Date(event.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </div>
-                      <div className="font-medium text-gray-800 mt-0.5">{event.description}</div>
+                      <div className="font-medium text-gray-800 mt-0.5">
+                        {event.action || (event as any).description}
+                      </div>
                     </div>
                   ))}
                 </div>

@@ -33,7 +33,7 @@ export default function PortalGateway() {
       <header className="border-b border-gray-200 bg-white sticky top-0 z-40 h-16 flex items-center">
         <div className="mx-auto w-full max-w-[1200px] px-4 sm:px-6 lg:px-8 flex items-center justify-between">
           <Link to="/" className="font-semibold text-[15px] tracking-tight text-gray-900">
-            CommunityPulse
+            NaturalPulse
           </Link>
 
           <div className="flex items-center gap-4">

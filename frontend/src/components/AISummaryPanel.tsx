@@ -10,7 +10,7 @@ export default function AISummaryPanel({ needs }: AISummaryPanelProps) {
   const summary = useMemo(() => {
     const activeNeeds = needs.filter(n => n.status !== 'RESOLVED');
     if (activeNeeds.length === 0) {
-      return "All quiet. No active crises detected by CommunityPulse AI.";
+      return "All quiet. No active crises detected by NaturalPulse AI.";
     }
 
     const highPriority = activeNeeds.filter(n => n.criticalityScore > 70);

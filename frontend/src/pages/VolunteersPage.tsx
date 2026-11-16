@@ -351,7 +351,22 @@ export default function VolunteersPage() {
                           </div>
                           <div>
                             <div className="text-[15px] font-medium text-white">{vol.name}</div>
-                            <div className="text-[13px] text-[#8B8B94]">{vol.ngo || 'Independent Responder'}</div>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className="text-[13px] text-[#8B8B94]">{vol.ngo || 'Independent Responder'}</span>
+                              {vol.ngo?.includes('NDRF') || vol.ngo?.includes('Civil Defense') ? (
+                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                                  Authority
+                                </span>
+                              ) : vol.ngo && !vol.ngo.includes('Independent') ? (
+                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                  Org Verified
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-zinc-500/10 text-zinc-400 border border-zinc-500/20">
+                                  Civic
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </td>
@@ -398,7 +413,9 @@ export default function VolunteersPage() {
 
                       {/* Reliability */}
                       <td className="px-4 text-white font-medium tabular-nums">
-                        {vol.reliabilityRate !== undefined ? `${(vol.reliabilityRate * 100).toFixed(0)}%` : '100%'}
+                        {vol.reliabilityRate !== undefined && vol.reliabilityRate > 0
+                          ? `${(vol.reliabilityRate * 100).toFixed(0)}%`
+                          : 'New'}
                       </td>
 
                       {/* Load */}

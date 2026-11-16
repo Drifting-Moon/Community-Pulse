@@ -140,10 +140,12 @@ app.get('/needs', async (req, res) => {
 app.get('/needs/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const query = id.toLowerCase();
+    const cleanQuery = (id || '').replace(/^[#]/, '').trim().toLowerCase();
     const allNeeds = await db.getAllNeeds();
     const need = allNeeds.find(
-      n => n.id.toLowerCase() === query || (n.ticketCode && n.ticketCode.toLowerCase() === query)
+      n =>
+        n.id.toLowerCase() === cleanQuery ||
+        (n.ticketCode && n.ticketCode.replace(/^[#]/, '').toLowerCase() === cleanQuery)
     );
     if (!need) return res.status(404).json({ error: 'Need not found' });
     res.json(need);
@@ -427,6 +429,13 @@ app.post('/ingest', upload.single('image'), async (req, res) => {
 
     const ticketCode = `CP-${Math.floor(1000 + Math.random() * 9000)}`;
 
+    // Calibrated Signal Completeness Metric (0 - 100):
+    // +35 for verified coordinates, +30 for attached photo proof, +20 for crisis classification, +15 base text
+    let signalConfidence = 15;
+    if (finalLat && finalLng) signalConfidence += 35;
+    if (base64Image) signalConfidence += 30;
+    if (extractedData.crisisType && extractedData.crisisType !== 'other') signalConfidence += 20;
+
     const newNeed: NeedEntity = {
       id: crypto.randomUUID(),
       ticketCode,
@@ -442,7 +451,7 @@ app.post('/ingest', upload.single('image'), async (req, res) => {
       criticalityScore: 0,
       status: 'OPEN',
       verificationStatus: 'PENDING',
-      verificationConfidence: Math.floor(84 + Math.random() * 14),
+      verificationConfidence: signalConfidence,
       reportedAt: Date.now(),
       rawInputs: [rawText],
       embedding,
@@ -648,6 +657,40 @@ app.patch('/needs/:id/verify', async (req, res) => {
   } catch (error) {
     console.error('Verify error:', error);
     res.status(500).json({ error: 'Failed to update verification status' });
+  }
+});
+
+// Admin Incident Escalation to NDRF / 112 Authorities
+app.patch('/needs/:id/escalate', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { authority = 'NDRF & 112 Emergency Dispatch', notes } = req.body;
+
+    const allNeeds = await db.getAllNeeds();
+    const need = allNeeds.find(n => n.id === id);
+    if (!need) return res.status(404).json({ error: 'Need not found' });
+
+    const timeline = [
+      ...(need.timeline || []),
+      {
+        timestamp: Date.now(),
+        action: `🚨 High-Risk Hazard Escalated to ${authority}${notes ? `: ${notes}` : ''}. Restricted from unequipped civilian volunteers.`,
+        actorRole: 'ADMIN' as const
+      }
+    ];
+
+    const updates = {
+      status: 'ESCALATED_AUTHORITY' as any,
+      timeline
+    };
+
+    await db.updateNeed(id, updates);
+    console.log(`🚨 Incident ${need.ticketCode || need.id} Escalated to ${authority}`);
+
+    res.json({ success: true, id, status: 'ESCALATED_AUTHORITY' });
+  } catch (error) {
+    console.error('Escalate error:', error);
+    res.status(500).json({ error: 'Failed to escalate incident' });
   }
 });
 

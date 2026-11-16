@@ -28,10 +28,12 @@ export function haversineDistance(lat1: number, lon1: number, lat2: number, lon2
 
 const SEVERITY_WEIGHTS: Record<string, number> = {
   medical: 100,
+  fire: 95,
   water: 90,
   food: 80,
   shelter: 70,
-  infrastructure: 50
+  infrastructure: 50,
+  other: 50
 };
 
 export async function processDeduplication(newNeed: NeedEntity): Promise<NeedEntity> {
@@ -48,7 +50,8 @@ export async function processDeduplication(newNeed: NeedEntity): Promise<NeedEnt
       existing.location.lat, existing.location.lng
     );
 
-    if (dist <= 2.0) { // 2km geo-radius
+    // Tightened urban clustering radius to 500m (0.5km) to prevent merging distinct incidents
+    if (dist <= 0.5) {
       const sim = cosineSimilarity(newNeed.embedding, existing.embedding);
       if (sim > 0.85 && sim > highestSim) {
         highestSim = sim;
@@ -59,13 +62,13 @@ export async function processDeduplication(newNeed: NeedEntity): Promise<NeedEnt
 
   // Helper to compute exact Priority Score 0-100
   const computeScore = (reportCount: number, firstReportedAt: number, crisisType: string, estimatedScale: number) => {
-    // 1. report_velocity: clamp to max ~100 (e.g. 50+ reports/hour gives 100 base velocity)
+    // 1. report_velocity: log-dampened to prevent artificial spam inflation, capped at 80
     const hours = Math.max((Date.now() - firstReportedAt) / (1000 * 60 * 60), 0.1);
     const velocityRaw = reportCount / hours;
-    const report_velocity = Math.min(100, velocityRaw * 5); // scaled assuming 20 rep/hr is severe
+    const report_velocity = Math.min(80, Math.round(Math.log2(velocityRaw + 1) * 20));
     
-    // 2. severity_weight: 0-100 from dict
-    const severity_weight = SEVERITY_WEIGHTS[crisisType] || 50;
+    // 2. severity_weight: 0-100 from dictionary (Medical=100, Fire=95, Water=90, etc.)
+    const severity_weight = SEVERITY_WEIGHTS[crisisType.toLowerCase()] || 50;
     
     // 3. vulnerability_index: 0-100 based on scale
     const vulnerability_index = Math.min(100, estimatedScale * 5); 

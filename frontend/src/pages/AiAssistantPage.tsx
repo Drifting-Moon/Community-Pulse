@@ -20,7 +20,7 @@ const QUICK_CHIPS = [
 
 const WELCOME_MESSAGE: Message = {
   role: 'model',
-  content: 'Namaste! I am CommunityPulse AI. I can analyze real-time live data of crises and volunteers. How can I help you coordinate today?',
+  content: 'Namaste! I am NaturalPulse AI. I can analyze real-time live data of crises and volunteers. How can I help you coordinate today?',
   timestamp: new Date().getTime()
 };
 
@@ -137,7 +137,7 @@ export default function AiAssistantPage({ isEmbedded = false }: { isEmbedded?: b
           <div>
             <h1 className="text-[1.6rem] font-bold text-white flex items-center gap-3">
               <SparklesIcon className="w-8 h-8 text-[#00bcd4]" /> 
-              CommunityPulse AI Assistant
+              NaturalPulse AI Assistant
             </h1>
             <p className="text-[#8B9CB8] text-sm mt-1 mb-0">Ask anything about current crises, volunteers, and resource gaps</p>
           </div>
@@ -190,7 +190,7 @@ export default function AiAssistantPage({ isEmbedded = false }: { isEmbedded?: b
         {isTyping && (
           <div className="flex w-full justify-start">
             <div className="bg-[#121927] border border-[#00bcd4]/30 rounded-2xl rounded-tl-sm p-4 shadow-lg flex items-center gap-2">
-               <span className="text-sm font-medium text-[#00bcd4]">CommunityPulse AI is thinking</span>
+               <span className="text-sm font-medium text-[#00bcd4]">NaturalPulse AI is thinking</span>
                <div className="flex gap-1 ml-1">
                  <div className="w-1.5 h-1.5 bg-[#00bcd4] rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
                  <div className="w-1.5 h-1.5 bg-[#00bcd4] rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>

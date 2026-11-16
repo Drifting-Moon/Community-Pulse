@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import {
   CheckCircleIcon,
   ExclamationTriangleIcon,
+  ExclamationCircleIcon,
   PlusIcon,
   XMarkIcon
 } from '@heroicons/react/24/outline';
@@ -75,6 +76,31 @@ export default function AdminInventoryPage() {
   const medicalTotal = supplies.filter((s) => s.category === 'medical').reduce((acc, s) => acc + s.quantity, 0);
   const rescueTotal = supplies.filter((s) => s.category === 'rescue').reduce((acc, s) => acc + s.quantity, 0);
 
+  const renderStockBadge = (total: number, lowThreshold = 20) => {
+    if (total === 0) {
+      return (
+        <div className="flex items-center gap-1.5 mt-3 text-[13px] text-[#E5383B]">
+          <ExclamationCircleIcon className="w-3.5 h-3.5" />
+          <span>Depleted (0)</span>
+        </div>
+      );
+    }
+    if (total < lowThreshold) {
+      return (
+        <div className="flex items-center gap-1.5 mt-3 text-[13px] text-[#E8A317]">
+          <ExclamationTriangleIcon className="w-3.5 h-3.5" />
+          <span>Low stock ({total})</span>
+        </div>
+      );
+    }
+    return (
+      <div className="flex items-center gap-1.5 mt-3 text-[13px] text-[#2E9E6B]">
+        <CheckCircleIcon className="w-3.5 h-3.5" />
+        <span>Adequate ({total})</span>
+      </div>
+    );
+  };
+
   return (
     <div className="w-full max-w-[1600px] mx-auto px-6 xl:px-8 py-6 space-y-4 font-sans text-[#F2F2F3]">
       {/* Toolbar row: depot filter select + add button (left) | right: 13px secondary note */}
@@ -121,10 +147,7 @@ export default function AdminInventoryPage() {
               <span className="text-[13px] text-[#8B8B94]">Cans / Units</span>
             </div>
           </div>
-          <div className="flex items-center gap-1.5 mt-3 text-[13px] text-[#2E9E6B]">
-            <CheckCircleIcon className="w-3.5 h-3.5" />
-            <span>OK</span>
-          </div>
+          {renderStockBadge(waterTotal, 50)}
         </div>
 
         {/* Ready rations */}
@@ -138,10 +161,7 @@ export default function AdminInventoryPage() {
               <span className="text-[13px] text-[#8B8B94]">Family Packs</span>
             </div>
           </div>
-          <div className="flex items-center gap-1.5 mt-3 text-[13px] text-[#2E9E6B]">
-            <CheckCircleIcon className="w-3.5 h-3.5" />
-            <span>OK</span>
-          </div>
+          {renderStockBadge(foodTotal, 30)}
         </div>
 
         {/* Medical kits */}
@@ -155,10 +175,7 @@ export default function AdminInventoryPage() {
               <span className="text-[13px] text-[#8B8B94]">Trauma Kits</span>
             </div>
           </div>
-          <div className="flex items-center gap-1.5 mt-3 text-[13px] text-[#2E9E6B]">
-            <CheckCircleIcon className="w-3.5 h-3.5" />
-            <span>OK</span>
-          </div>
+          {renderStockBadge(medicalTotal, 20)}
         </div>
 
         {/* Rescue boats */}
@@ -172,10 +189,7 @@ export default function AdminInventoryPage() {
               <span className="text-[13px] text-[#8B8B94]">Boats</span>
             </div>
           </div>
-          <div className="flex items-center gap-1.5 mt-3 text-[13px] text-[#E8A317]">
-            <ExclamationTriangleIcon className="w-3.5 h-3.5" />
-            <span>Moderate</span>
-          </div>
+          {renderStockBadge(rescueTotal, 5)}
         </div>
       </div>
 
