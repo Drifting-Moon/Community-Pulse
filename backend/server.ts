@@ -759,12 +759,12 @@ app.post('/ingest', upload.single('image'), async (req, res) => {
     const finalCrisisType = (explicitCrisisType || extractedData.crisisType || 'food').toLowerCase();
     const locationStr = `${finalCrisisType} ${finalLocationName} ${extractedData.urgencyReasoning}`;
 
-    let embedding: number[];
+    let embedding: number[] = [];
     try {
       embedding = await AIService.getEmbedding(locationStr);
     } catch (e: any) {
-      console.warn('⚠️ Embedding quota hit — using zero vector for dedup.');
-      embedding = new Array(768).fill(0).map(() => Math.random() * 0.01);
+      console.warn('⚠️ Embedding quota hit — proceeding with geo-crisis category clustering.');
+      embedding = [];
     }
 
     const ticketCode = `CP-${Math.floor(1000 + Math.random() * 9000)}`;

@@ -49,16 +49,21 @@ export async function processDeduplication(newNeed: NeedEntity): Promise<NeedEnt
   let shortestDist = Infinity;
 
   for (const existing of recentNeeds) {
+    // 1. Strict Hazard Category Isolation: Different disaster types (e.g. Fire vs Flood) must NEVER merge!
+    if (existing.crisisType !== newNeed.crisisType) {
+      continue;
+    }
+
     const dist = haversineDistance(
       newNeed.location.lat, newNeed.location.lng,
       existing.location.lat, existing.location.lng
     );
 
-    // Tightened urban clustering radius to 500m (0.5km) to prevent merging distinct incidents
-    if (dist <= 0.5) {
-      let isMatch = false;
+    // Precise urban clustering radius: 200m (0.2km)
+    if (dist <= 0.2) {
+      let isMatch = true;
 
-      // 1. AI Vector Embedding check (if embeddings exist for both)
+      // If embeddings exist, verify semantic consistency
       if (
         existing.embedding &&
         newNeed.embedding &&
@@ -66,20 +71,14 @@ export async function processDeduplication(newNeed: NeedEntity): Promise<NeedEnt
         newNeed.embedding.length > 0
       ) {
         const sim = cosineSimilarity(newNeed.embedding, existing.embedding);
-        if (sim >= 0.75 && sim > highestSim) {
-          highestSim = sim;
-          bestMatch = existing;
-          shortestDist = dist;
-          isMatch = true;
+        if (sim < 0.65) {
+          isMatch = false;
         }
       }
 
-      // 2. Geo-Crisis Cluster Fallback: Same crisis category within 500m
-      if (!isMatch && existing.crisisType === newNeed.crisisType) {
-        if (dist < shortestDist) {
-          shortestDist = dist;
-          bestMatch = existing;
-        }
+      if (isMatch && dist < shortestDist) {
+        shortestDist = dist;
+        bestMatch = existing;
       }
     }
   }
