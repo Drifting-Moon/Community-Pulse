@@ -633,6 +633,23 @@ export default function VolunteerApp() {
               )}
             </div>
 
+            {/* Quick Active / Off Duty Status Switch */}
+            {volunteer && (
+              <button
+                type="button"
+                onClick={() => handleToggleStatus(volunteer.status === 'AVAILABLE' ? 'OFF_DUTY' : 'AVAILABLE')}
+                className={`h-9 px-3 rounded-lg text-[13px] font-semibold border flex items-center gap-2 transition-all cursor-pointer shadow-xs ${
+                  volunteer.status === 'AVAILABLE'
+                    ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300'
+                    : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-600 border-zinc-300'
+                }`}
+                title="Click to toggle your duty status"
+              >
+                <span className={`w-2.5 h-2.5 rounded-full ${volunteer.status === 'AVAILABLE' ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-400'}`} />
+                <span>{volunteer.status === 'AVAILABLE' ? 'Active (On Duty)' : 'Off Duty'}</span>
+              </button>
+            )}
+
             {/* Profile / Account Menu */}
             <div className="relative">
               <button

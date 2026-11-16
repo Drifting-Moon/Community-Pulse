@@ -191,6 +191,9 @@ export default function ReportPage() {
         formData.append('text', fullText);
         formData.append('locationName', locText);
 
+        const mappedType = selectedType === 'flood' ? 'water' : selectedType === 'fire' ? 'infrastructure' : (selectedType || 'medical');
+        formData.append('crisisType', mappedType);
+
         // Direct GPS Passthrough: send exact lat/lng when GPS is detected and no override address typed
         if (!hasManualAddress && detectedLocation && typeof detectedLocation.lat === 'number' && typeof detectedLocation.lng === 'number') {
           formData.append('lat', detectedLocation.lat.toString());
