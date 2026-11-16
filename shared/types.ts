@@ -98,6 +98,7 @@ export interface VolunteerProfile {
   name: string;
   ngo?: string; // NGO / Affiliation (e.g. Red Cross, Goonj, SEEDS, Independent)
   ngoCode?: string; // 5-letter unique NGO code (e.g. ASDCG)
+  verificationTier?: 'AUTHORITY' | 'ORG_VERIFIED' | 'CIVIC';
   phone?: string;
   email?: string;
   password?: string;

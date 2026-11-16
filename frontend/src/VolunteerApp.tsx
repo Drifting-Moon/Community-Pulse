@@ -291,9 +291,15 @@ export default function VolunteerApp() {
       return;
     }
 
+    const cleanCode = regNgoCode.trim().toUpperCase().replace(/[^A-Z]/g, '');
+    if (!cleanCode || cleanCode.length !== 5) {
+      setAuthError('NGO Team Code is required (must be exactly 5 letters, e.g. REDCX or your admin code).');
+      setRegStep(1);
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      const cleanCode = regNgoCode.trim() ? regNgoCode.trim().toUpperCase() : undefined;
       const payload = {
         name: regName.trim(),
         email: authEmail.trim().toLowerCase(),
@@ -1188,19 +1194,20 @@ export default function VolunteerApp() {
 
                     <div>
                       <div className="flex items-center justify-between mb-1">
-                        <label className="text-gray-700 font-medium">NGO Team Code</label>
-                        <span className="text-[11px] text-gray-500 font-medium">Optional • 5 Letters</span>
+                        <label className="text-gray-700 font-medium">NGO Team Code *</label>
+                        <span className="text-[11px] text-emerald-600 font-bold">Required • 5 Letters</span>
                       </div>
                       <input
                         type="text"
+                        required
                         maxLength={5}
-                        placeholder="e.g. ASDCG"
+                        placeholder="e.g. REDCX"
                         value={regNgoCode}
                         onChange={(e) => setRegNgoCode(e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))}
                         className="w-full h-10 bg-white border border-gray-300 rounded-lg px-3 text-gray-900 uppercase font-mono tracking-wider focus:outline-none focus:border-gray-900 placeholder:normal-case placeholder:font-sans placeholder:tracking-normal text-[14px]"
                       />
                       <p className="text-[11px] text-gray-500 mt-1">
-                        If your NGO provided a 5-letter team code, enter it so your response unit links to your admin.
+                        Enter the unique 5-letter team code provided by your organization admin to verify your responder credentials.
                       </p>
                     </div>
 

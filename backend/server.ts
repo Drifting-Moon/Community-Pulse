@@ -539,7 +539,26 @@ const handleRegisterVolunteer = async (req: express.Request, res: express.Respon
       return res.status(409).json({ error: 'A volunteer account with this Email ID already exists. Please sign in instead.' });
     }
 
-    const cleanNgoCode = ngoCode && typeof ngoCode === 'string' ? ngoCode.trim().toUpperCase() : undefined;
+    const cleanNgoCode = ngoCode && typeof ngoCode === 'string' ? ngoCode.trim().toUpperCase().replace(/[^A-Z]/g, '') : undefined;
+    if (!cleanNgoCode || cleanNgoCode.length !== 5) {
+      return res.status(400).json({ error: 'Valid 5-letter NGO Team Code is required for volunteer registration.' });
+    }
+
+    let verificationTier: 'AUTHORITY' | 'ORG_VERIFIED' | 'CIVIC' = 'CIVIC';
+    let assignedNgo = ngo && ngo.trim() ? ngo.trim() : 'Independent Civic Responder';
+
+    const matchedAdmin = await db.getAdminAccountByNgoCode(cleanNgoCode);
+    if (!matchedAdmin) {
+      return res.status(400).json({ error: `Invalid NGO Team Code "${cleanNgoCode}". No registered department or NGO found with this code.` });
+    }
+
+    assignedNgo = matchedAdmin.departmentName;
+    if (['DISASTER_MGMT', 'POLICE_DEPT', 'FIRE_DEPT'].includes(matchedAdmin.departmentCategory)) {
+      verificationTier = 'AUTHORITY';
+    } else {
+      verificationTier = 'ORG_VERIFIED';
+    }
+
     const coords = locationCoords && typeof locationCoords.lat === 'number' && typeof locationCoords.lng === 'number'
       ? { lat: Number(locationCoords.lat), lng: Number(locationCoords.lng) }
       : { lat: 28.6139, lng: 77.2090 };
@@ -549,17 +568,18 @@ const handleRegisterVolunteer = async (req: express.Request, res: express.Respon
       name: name.trim(),
       email: cleanEmail,
       password: password.trim(),
-      ngo: ngo && ngo.trim() ? ngo.trim() : 'Independent Civic Responder',
+      ngo: assignedNgo,
       ngoCode: cleanNgoCode,
+      verificationTier,
       phone: phone ? phone.trim() : undefined,
       preferredLanguage: preferredLanguage || 'English',
       skills: Array.isArray(skills) && skills.length > 0 ? skills : ['medical', 'first_aid'],
       locationCoords: coords,
-      locationName: locationName || 'Local Station',
+      locationName: locationName || matchedAdmin.stationName || 'Local Station',
       reliabilityRate: 0.95,
       status: 'AVAILABLE',
       hoursLast30Days: 0,
-      pastContributions: ['Registered responder in CommunityPulse verified network'],
+      pastContributions: [`Verified field responder in ${assignedNgo}`],
       registeredAt: Date.now()
     };
 

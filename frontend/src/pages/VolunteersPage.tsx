@@ -169,16 +169,6 @@ export default function VolunteersPage() {
     }
   };
 
-  const handleToggleVolunteerStatus = async (id: string, currentStatus: string) => {
-    const nextStatus = currentStatus === 'AVAILABLE' ? 'OFF_DUTY' : 'AVAILABLE';
-    try {
-      await axios.patch(`${API_BASE}/volunteers/${id}`, { status: nextStatus });
-      setVolunteers((prev) => prev.map((v) => (v.id === id ? { ...v, status: nextStatus } : v)));
-    } catch (e) {
-      console.error('Error updating volunteer status:', e);
-    }
-  };
-
   // Filter calculations
   const filteredVolunteers = useMemo(() => {
     let list = [...volunteers];
@@ -474,11 +464,11 @@ export default function VolunteersPage() {
                             <div className="text-[15px] font-medium text-white">{vol.name}</div>
                             <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                               <span className="text-[13px] text-[#8B8B94]">{vol.ngo || 'Independent Responder'}</span>
-                              {vol.ngo?.includes('NDRF') || vol.ngo?.includes('Civil Defense') ? (
+                              {vol.verificationTier === 'AUTHORITY' ? (
                                 <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
                                   Authority
                                 </span>
-                              ) : vol.ngo && !vol.ngo.includes('Independent') ? (
+                              ) : vol.verificationTier === 'ORG_VERIFIED' ? (
                                 <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                                   Org Verified
                                 </span>
@@ -497,18 +487,12 @@ export default function VolunteersPage() {
                         </div>
                       </td>
 
-                      {/* Status (dot + "Ready / Busy / Off duty") */}
+                      {/* Status (dot + "Ready / Busy / Off duty") - Read-only (controlled by volunteer) */}
                       <td className="px-4">
-                        <button
-                          type="button"
-                          onClick={() => handleToggleVolunteerStatus(vol.id, vol.status)}
-                          className="flex items-center gap-2 px-2 py-1 rounded-[6px] hover:bg-[#26262A] transition-colors cursor-pointer text-left"
-                          title="Click to toggle Ready / Off duty"
-                        >
+                        <div className="flex items-center gap-2 px-2 py-1 text-left">
                           <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: statusColor }} />
                           <span className="text-[13px] text-white font-medium">{statusText}</span>
-                          <span className="text-[10px] text-[#8B8B94]">⇄</span>
-                        </button>
+                        </div>
                       </td>
 
                       {/* Station (place 15, "Kolkata - Park Street" 13 secondary) */}
