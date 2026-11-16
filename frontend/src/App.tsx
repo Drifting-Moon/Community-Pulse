@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import axios from 'axios';
 import { Routes, Route, useLocation, useNavigate, Link } from 'react-router-dom';
-import type { NeedEntity, VolunteerProfile, Prediction } from './types';
+import type { NeedEntity, VolunteerProfile, Prediction, AdminAccount, AdminDepartmentCategory } from './types';
 import { MapContainer, TileLayer, CircleMarker, Circle, Tooltip, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet.heat';
@@ -97,6 +97,51 @@ const PLACE_COORDS: Record<string, [number, number]> = {
   'Kolkata': [22.5726, 88.3639],
   'Hyderabad': [17.3850, 78.4867]
 };
+
+const DEPARTMENT_CATEGORIES: {
+  id: AdminDepartmentCategory;
+  name: string;
+  emoji: string;
+  color: string;
+  desc: string;
+}[] = [
+  { id: 'FIRE_DEPT', name: 'Fire & Rescue Department', emoji: '🚒', color: '#EF4444', desc: 'Emergency fire response, entrapment & perimeter control' },
+  { id: 'POLICE_DEPT', name: 'Police & Public Safety', emoji: '🚓', color: '#3B82F6', desc: 'Law enforcement, civic safety & incident perimeter' },
+  { id: 'NGO', name: 'Non-Governmental Organization (NGO)', emoji: '🤝', color: '#10B981', desc: 'Civilian humanitarian relief, food, water & field responder teams' },
+  { id: 'MEDICAL_HEALTH', name: 'Emergency Health & Medical Services', emoji: '🏥', color: '#EC4899', desc: 'Trauma triage, ambulances & emergency hospital dispatch' },
+  { id: 'DISASTER_MGMT', name: 'Disaster Management Authority (SDRF / NDRF)', emoji: '🛡️', color: '#F59E0B', desc: 'Integrated multi-hazard emergency coordination' }
+];
+
+function getDeptColor(category?: AdminDepartmentCategory): string {
+  switch (category) {
+    case 'FIRE_DEPT': return '#EF4444';
+    case 'POLICE_DEPT': return '#3B82F6';
+    case 'NGO': return '#10B981';
+    case 'MEDICAL_HEALTH': return '#EC4899';
+    case 'DISASTER_MGMT': return '#F59E0B';
+    default: return '#4C8DFF';
+  }
+}
+
+function getDeptEmoji(category?: AdminDepartmentCategory): string {
+  switch (category) {
+    case 'FIRE_DEPT': return '🚒';
+    case 'POLICE_DEPT': return '🚓';
+    case 'NGO': return '🤝';
+    case 'MEDICAL_HEALTH': return '🏥';
+    case 'DISASTER_MGMT': return '🛡️';
+    default: return '🛡️';
+  }
+}
+
+function generate5LetterCode(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  let res = '';
+  for (let i = 0; i < 5; i++) {
+    res += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return res;
+}
 
 // Map Controller: handles invalidateSize, initial fitBounds to active points, and flyTo on selected incident
 const MapController = ({
@@ -222,6 +267,198 @@ export default function App() {
     } catch {}
   }, [sectors]);
 
+  const ADMIN_STORAGE_KEY = 'communitypulse_admin_account';
+
+  const [adminAccount, setAdminAccount] = useState<AdminAccount | null>(() => {
+    try {
+      const saved = localStorage.getItem(ADMIN_STORAGE_KEY);
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [showAdminLoginModal, setShowAdminLoginModal] = useState<boolean>(() => {
+    try {
+      return !localStorage.getItem(ADMIN_STORAGE_KEY);
+    } catch {
+      return true;
+    }
+  });
+
+  // Admin authentication state: Sign In vs Register
+  const [authTab, setAuthTab] = useState<'signin' | 'register'>('signin');
+  const [authEmail, setAuthEmail] = useState<string>('');
+  const [authPassword, setAuthPassword] = useState<string>('');
+  const [authError, setAuthError] = useState<string>('');
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(false);
+
+  // Department registration form state
+  const [loginDeptCategory, setLoginDeptCategory] = useState<AdminDepartmentCategory>('FIRE_DEPT');
+  const [loginDeptName, setLoginDeptName] = useState<string>('City Fire & Rescue Station 1');
+  const [loginStationName, setLoginStationName] = useState<string>('Jaipur Central');
+  const [loginLat, setLoginLat] = useState<number>(26.9124);
+  const [loginLng, setLoginLng] = useState<number>(75.7873);
+  const [isNgoSignInMode, setIsNgoSignInMode] = useState<boolean>(false);
+  const [loginNgoCodeInput, setLoginNgoCodeInput] = useState<string>('');
+  const [generatedNgoCode, setGeneratedNgoCode] = useState<string>(() => generate5LetterCode());
+  const [isDetectingAdminGps, setIsDetectingAdminGps] = useState<boolean>(false);
+
+  const handleCategorySelect = (cat: AdminDepartmentCategory) => {
+    setLoginDeptCategory(cat);
+    if (cat === 'FIRE_DEPT') setLoginDeptName('City Fire & Rescue Station 1');
+    else if (cat === 'POLICE_DEPT') setLoginDeptName('Central Police Division');
+    else if (cat === 'NGO') {
+      setLoginDeptName('Red Cross Emergency Team');
+      setGeneratedNgoCode(generate5LetterCode());
+    }
+    else if (cat === 'MEDICAL_HEALTH') setLoginDeptName('Apex Trauma & Emergency Medical Unit');
+    else if (cat === 'DISASTER_MGMT') setLoginDeptName('State Disaster Management Force (SDRF)');
+  };
+
+  const handleDetectAdminGps = () => {
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser.');
+      return;
+    }
+    setIsDetectingAdminGps(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setLoginLat(Number(pos.coords.latitude.toFixed(4)));
+        setLoginLng(Number(pos.coords.longitude.toFixed(4)));
+        setLoginStationName('Custom Station (GPS)');
+        setIsDetectingAdminGps(false);
+      },
+      () => {
+        setIsDetectingAdminGps(false);
+        alert('Could not acquire GPS position. Please pick a preset.');
+      },
+      { timeout: 8000 }
+    );
+  };
+
+  const handleAdminSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError('');
+    if (!authEmail.trim() || !authPassword.trim()) {
+      setAuthError('Please enter both Email ID and Password.');
+      return;
+    }
+
+    setIsAuthLoading(true);
+    try {
+      let res;
+      try {
+        res = await axios.post(`${API_BASE}/api/admin/auth/login`, {
+          email: authEmail.trim().toLowerCase(),
+          password: authPassword.trim()
+        });
+      } catch (e: any) {
+        if (e.response?.status === 404 && !e.response?.data?.error) {
+          res = await axios.post(`${API_BASE}/admin/auth/login`, {
+            email: authEmail.trim().toLowerCase(),
+            password: authPassword.trim()
+          });
+        } else {
+          throw e;
+        }
+      }
+
+      const account = res.data.account;
+      setAdminAccount(account);
+      try {
+        localStorage.setItem(ADMIN_STORAGE_KEY, JSON.stringify(account));
+      } catch {}
+      setShowAdminLoginModal(false);
+      setAuthPassword('');
+    } catch (err: any) {
+      const msg = err.response?.data?.error || 'Invalid credentials. Please verify your Email and Password.';
+      setAuthError(msg);
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  const handleAdminRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError('');
+    if (!authEmail.trim()) {
+      setAuthError('Please enter an Email ID.');
+      return;
+    }
+    if (!authPassword.trim() || authPassword.trim().length < 6) {
+      setAuthError('Password must be at least 6 characters.');
+      return;
+    }
+    if (!loginDeptName.trim()) {
+      setAuthError('Please enter department / organization name.');
+      return;
+    }
+
+    let finalNgoCode: string | undefined = undefined;
+    if (loginDeptCategory === 'NGO') {
+      if (isNgoSignInMode) {
+        const clean = loginNgoCodeInput.trim().toUpperCase();
+        if (!clean || clean.length !== 5) {
+          setAuthError('Please enter a valid 5-letter NGO team code.');
+          return;
+        }
+        finalNgoCode = clean;
+      } else {
+        finalNgoCode = generatedNgoCode.toUpperCase();
+      }
+    }
+
+    const payload = {
+      email: authEmail.trim().toLowerCase(),
+      password: authPassword.trim(),
+      departmentCategory: loginDeptCategory,
+      departmentName: loginDeptName.trim(),
+      stationName: loginStationName,
+      hqCoords: { lat: loginLat, lng: loginLng },
+      radiusKm: 15, // Fixed 15 km area as specified
+      ngoCode: finalNgoCode
+    };
+
+    setIsAuthLoading(true);
+    try {
+      let res;
+      try {
+        res = await axios.post(`${API_BASE}/api/admin/auth/register`, payload);
+      } catch (e: any) {
+        if (e.response?.status === 404 && !e.response?.data?.error) {
+          res = await axios.post(`${API_BASE}/admin/auth/register`, payload);
+        } else {
+          throw e;
+        }
+      }
+
+      const account = res.data.account;
+      setAdminAccount(account);
+      try {
+        localStorage.setItem(ADMIN_STORAGE_KEY, JSON.stringify(account));
+      } catch {}
+      setShowAdminLoginModal(false);
+      setAuthPassword('');
+    } catch (err: any) {
+      const msg = err.response?.data?.error || 'Registration failed. Email may already be in use.';
+      setAuthError(msg);
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  const handleLogoutAdmin = () => {
+    try {
+      localStorage.removeItem(ADMIN_STORAGE_KEY);
+    } catch {}
+    setAdminAccount(null);
+    setAuthError('');
+    setAuthPassword('');
+    setGeneratedNgoCode(generate5LetterCode());
+    setShowAdminLoginModal(true);
+  };
+
   const [selectedSectorId, setSelectedSectorId] = useState<string>(() => {
     try {
       const saved = sessionStorage.getItem('command_center_sector_chosen');
@@ -229,13 +466,7 @@ export default function App() {
     } catch {}
     return 'ALL';
   });
-  const [showSectorGate, setShowSectorGate] = useState<boolean>(() => {
-    try {
-      return !sessionStorage.getItem('command_center_sector_chosen');
-    } catch {
-      return false;
-    }
-  });
+  const [showSectorGate, setShowSectorGate] = useState<boolean>(false);
 
   const handleSelectGateSector = (sectorId: string) => {
     setSelectedSectorId(sectorId);
@@ -429,8 +660,14 @@ export default function App() {
   const handleDispatch = async (needId: string) => {
     setLoadingDispatch(true);
     try {
-      const res = await axios.post(`${API_BASE}/dispatch`, { needId });
+      const topAvailable = scopedVolunteers.find((v) => v.status === 'AVAILABLE');
+      const payload: any = { needId };
+      if (topAvailable) {
+        payload.volunteerId = topAvailable.id;
+      }
+      const res = await axios.post(`${API_BASE}/dispatch`, payload);
       fetchNeeds();
+      fetchVolunteers();
       if (selectedNeed?.id === needId) {
         setSelectedNeed(res.data.need);
       }
@@ -479,26 +716,86 @@ export default function App() {
     }
   };
 
-  // Scoped Needs based on Active Sector
+  // Operational Center based on Admin Station & 15km Radius (or activeSector fallback)
+  const operationalCenter = useMemo(() => {
+    if (adminAccount?.hqCoords) {
+      return {
+        lat: adminAccount.hqCoords.lat,
+        lng: adminAccount.hqCoords.lng,
+        name: adminAccount.stationName,
+        radiusKm: adminAccount.radiusKm || 15
+      };
+    }
+    if (activeSector) {
+      return {
+        lat: activeSector.lat,
+        lng: activeSector.lng,
+        name: activeSector.name,
+        radiusKm: activeSector.radiusKm
+      };
+    }
+    return null;
+  }, [adminAccount, activeSector]);
+
+  // Scoped Needs based on Operational Center (15 km Radius)
   const scopedNeeds = useMemo(() => {
-    if (!activeSector) return needs;
+    if (!operationalCenter) return needs;
     return needs.filter((n) => {
       // 1. Coordinate distance check if lat and lng exist
       if (typeof n.location?.lat === 'number' && typeof n.location?.lng === 'number') {
-        const dist = haversineDistance(activeSector.lat, activeSector.lng, n.location.lat, n.location.lng);
-        if (dist <= activeSector.radiusKm) return true;
+        const dist = haversineDistance(operationalCenter.lat, operationalCenter.lng, n.location.lat, n.location.lng);
+        if (dist <= operationalCenter.radiusKm) return true;
       }
-      // 2. Also match by sector name keywords (e.g. "bagru", "jaipur", "mansarovar")
-      const sectorKeywords = activeSector.name.toLowerCase().split(/[\s,()/-]+/);
+      // 2. Also match by sector/station name keywords
+      const sectorKeywords = operationalCenter.name.toLowerCase().split(/[\s,()/-]+/);
       const locName = (n.location?.name || '').toLowerCase();
-      return sectorKeywords.some((kw) => kw.length >= 3 && locName.includes(kw));
+      if (sectorKeywords.some((kw) => kw.length >= 3 && locName.includes(kw))) return true;
+
+      // 3. Match against known place coordinates if client did not send GPS
+      for (const [place, coords] of Object.entries(PLACE_COORDS)) {
+        if (locName.includes(place.toLowerCase())) {
+          const dist = haversineDistance(operationalCenter.lat, operationalCenter.lng, coords[0], coords[1]);
+          if (dist <= operationalCenter.radiusKm) return true;
+        }
+      }
+      return false;
     });
-  }, [needs, activeSector]);
+  }, [needs, operationalCenter]);
+
+  // Scoped Volunteers based on 15km operational radius and NGO team isolation
+  const scopedVolunteers = useMemo(() => {
+    let list = volunteers;
+
+    // NGO Admin: strictly show ONLY volunteers belonging to their NGO (via 5-letter code or matching name)
+    if (adminAccount?.departmentCategory === 'NGO') {
+      list = list.filter((v) => {
+        if (adminAccount.ngoCode && v.ngoCode) {
+          return v.ngoCode.toUpperCase() === adminAccount.ngoCode.toUpperCase();
+        }
+        if (adminAccount.departmentName && v.ngo) {
+          return v.ngo.toLowerCase().includes(adminAccount.departmentName.toLowerCase()) ||
+                 adminAccount.departmentName.toLowerCase().includes(v.ngo.toLowerCase());
+        }
+        return false;
+      });
+    }
+
+    // Radius filter (15km default)
+    if (operationalCenter) {
+      list = list.filter((v) => {
+        if (!v.locationCoords) return false;
+        const dist = haversineDistance(operationalCenter.lat, operationalCenter.lng, v.locationCoords.lat, v.locationCoords.lng);
+        return dist <= operationalCenter.radiusKm;
+      });
+    }
+
+    return list;
+  }, [volunteers, adminAccount, operationalCenter]);
 
   // Active metrics scoped to jurisdiction
   const activeCount = scopedNeeds.filter((n) => n.status !== 'RESOLVED' && n.status !== 'FALSE_ALARM').length;
   const enRouteCount = scopedNeeds.filter((n) => n.status === 'EN_ROUTE' || (n.enRouteVolunteers && n.enRouteVolunteers.length > 0)).length;
-  const volunteersReady = volunteers.filter((v) => v.status === 'AVAILABLE').length;
+  const volunteersReady = scopedVolunteers.filter((v) => v.status === 'AVAILABLE').length;
   const resolvedCount = scopedNeeds.filter((n) => n.status === 'RESOLVED').length;
 
   // Filter & sort incidents for dashboard list
@@ -620,7 +917,35 @@ export default function App() {
                 {pageTitle}
               </h1>
 
-              {pageTitle === 'Dashboard' && (
+              {adminAccount && (
+                <div className="flex items-center gap-2 px-2.5 py-1 bg-[#141416] border border-[#26262A] rounded-lg text-[12px]">
+                  <span
+                    className="w-2 h-2 rounded-full shrink-0"
+                    style={{ backgroundColor: getDeptColor(adminAccount.departmentCategory) }}
+                  />
+                  <span className="font-semibold text-white truncate max-w-[140px] sm:max-w-[200px]">
+                    {adminAccount.departmentName}
+                  </span>
+                  <span className="text-[#8B8B94] hidden md:inline">
+                    • 15km ({adminAccount.stationName})
+                  </span>
+                  {adminAccount.ngoCode && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(adminAccount.ngoCode || '');
+                        alert(`Copied NGO Code: ${adminAccount.ngoCode}`);
+                      }}
+                      className="px-1.5 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-500/40 font-mono font-bold tracking-wider hover:bg-emerald-900 transition-colors"
+                      title="Click to copy team join code"
+                    >
+                      Code: {adminAccount.ngoCode}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {pageTitle === 'Dashboard' && !adminAccount && (
                 <div className="flex items-center gap-1.5 pl-3 border-l border-[#26262A]">
                   <span className="text-[11px] text-[#8B8B94] font-medium hidden sm:inline">Sector:</span>
                   <select
@@ -679,9 +1004,28 @@ export default function App() {
                 {showAvatarMenu && (
                   <div className="absolute right-0 top-full mt-2 w-52 bg-[#141416] border border-[#26262A] rounded-[10px] shadow-xl p-2 z-[1000] text-[13px]">
                     <div className="px-3 py-2 border-b border-[#26262A] mb-1">
-                      <p className="font-semibold text-white truncate">Admin User</p>
-                      <p className="text-[11px] text-[#8B8B94]">Dispatcher</p>
+                      <p className="font-semibold text-white truncate">
+                        {adminAccount ? adminAccount.departmentName : 'Admin Command'}
+                      </p>
+                      <p className="text-[11px] text-[#8B8B94]">
+                        {adminAccount ? `${adminAccount.stationName} • 15km Radius` : 'Dispatcher'}
+                      </p>
+                      {adminAccount?.ngoCode && (
+                        <p className="text-[11px] text-emerald-400 font-mono mt-1 font-bold">
+                          NGO Code: {adminAccount.ngoCode}
+                        </p>
+                      )}
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAvatarMenu(false);
+                        setShowAdminLoginModal(true);
+                      }}
+                      className="w-full text-left px-3 py-2 text-[#F2F2F3] hover:bg-[#1A1A1D] rounded-[8px] transition-colors"
+                    >
+                      Switch Department / Station
+                    </button>
                     <Link
                       to="/volunteer"
                       onClick={() => setShowAvatarMenu(false)}
@@ -693,9 +1037,9 @@ export default function App() {
                       type="button"
                       onClick={() => {
                         setShowAvatarMenu(false);
-                        navigate('/');
+                        handleLogoutAdmin();
                       }}
-                      className="w-full text-left px-3 py-2 text-[#8B8B94] hover:text-white hover:bg-[#1A1A1D] rounded-[8px] transition-colors"
+                      className="w-full text-left px-3 py-2 text-[#E5383B] hover:text-red-400 hover:bg-[#1A1A1D] rounded-[8px] transition-colors"
                     >
                       Sign out
                     </button>
@@ -778,24 +1122,69 @@ export default function App() {
                           <MapController
                             points={activePoints}
                             selectedNeed={selectedNeed}
-                            centerTarget={activeSector ? [activeSector.lat, activeSector.lng] : null}
+                            centerTarget={operationalCenter ? [operationalCenter.lat, operationalCenter.lng] : null}
                           />
                           <HeatmapOverlay data={heatmapData} enabled={heatmapEnabled} />
 
-                          {/* Active Sector visual boundary circle */}
-                          {activeSector && (
+                          {/* 15km Operational visual boundary circle */}
+                          {operationalCenter && (
                             <Circle
-                              center={[activeSector.lat, activeSector.lng]}
-                              radius={activeSector.radiusKm * 1000}
+                              center={[operationalCenter.lat, operationalCenter.lng]}
+                              radius={operationalCenter.radiusKm * 1000}
                               pathOptions={{
-                                color: '#4C8DFF',
-                                weight: 1.5,
+                                color: getDeptColor(adminAccount?.departmentCategory),
+                                weight: 2,
                                 dashArray: '6, 6',
-                                fillColor: '#4C8DFF',
-                                fillOpacity: 0.04
+                                fillColor: getDeptColor(adminAccount?.departmentCategory),
+                                fillOpacity: 0.05
                               }}
                             />
                           )}
+
+                          {/* Station HQ marker */}
+                          {adminAccount?.hqCoords && (
+                            <CircleMarker
+                              center={[adminAccount.hqCoords.lat, adminAccount.hqCoords.lng]}
+                              radius={7}
+                              pathOptions={{
+                                color: '#FFFFFF',
+                                weight: 2,
+                                fillColor: getDeptColor(adminAccount.departmentCategory),
+                                fillOpacity: 1
+                              }}
+                            >
+                              <Tooltip direction="top" offset={[0, -6]} opacity={1}>
+                                <span className="text-[12px] font-sans font-semibold">
+                                  {getDeptEmoji(adminAccount.departmentCategory)} {adminAccount.departmentName} (HQ) • 15km Area
+                                </span>
+                              </Tooltip>
+                            </CircleMarker>
+                          )}
+
+                          {/* Active Responders in 15km Radius (Scoped to NGO team if NGO admin) */}
+                          {scopedVolunteers.map((v) => {
+                            if (!v.locationCoords?.lat || !v.locationCoords?.lng) return null;
+                            return (
+                              <CircleMarker
+                                key={`map-vol-${v.id}`}
+                                center={[v.locationCoords.lat, v.locationCoords.lng]}
+                                radius={5}
+                                pathOptions={{
+                                  color: '#FFFFFF',
+                                  weight: 1.5,
+                                  fillColor: v.status === 'AVAILABLE' ? '#10B981' : '#F59E0B',
+                                  fillOpacity: 0.95
+                                }}
+                              >
+                                <Tooltip direction="top" offset={[0, -5]} opacity={1}>
+                                  <span className="text-[12px] font-sans">
+                                    🦺 {v.name} ({v.ngo || 'Responder'}) · {v.status}
+                                    {v.ngoCode ? ` [Code: ${v.ngoCode}]` : ''}
+                                  </span>
+                                </Tooltip>
+                              </CircleMarker>
+                            );
+                          })}
 
                           {/* Pins: 14px circles colored by severity (>=85 red, 65-84 amber, <65 gray) */}
                           {scopedNeeds.map((n) => {
@@ -822,6 +1211,11 @@ export default function App() {
                                 <Tooltip direction="top" offset={[0, -8]} opacity={1}>
                                   <span className="text-[13px] font-sans font-medium">
                                     {n.crisisType} · {n.location.name} · Score {score.toFixed(0)}
+                                    {n.respondingParty || (n.enRouteVolunteers && n.enRouteVolunteers.length > 0) || n.responseStatus === 'RESPONDING'
+                                      ? ' · 🟢 Responding'
+                                      : n.status === 'RESOLVED'
+                                      ? ' · ✓ Resolved'
+                                      : ' · ⏳ Awaiting Response'}
                                   </span>
                                 </Tooltip>
                               </CircleMarker>
@@ -948,6 +1342,30 @@ export default function App() {
                                       {formatShortTimeAgo(need.reportedAt)}
                                     </span>
                                   </div>
+
+                                  {/* Line 3: Response status tag */}
+                                  <div className="flex items-center justify-between gap-2 mt-2 pt-1.5 border-t border-[#26262A]/60">
+                                    {need.respondingParty || (need.enRouteVolunteers && need.enRouteVolunteers.length > 0) || need.responseStatus === 'RESPONDING' ? (
+                                      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-400 bg-emerald-950/40 border border-emerald-800/40 px-2 py-0.5 rounded truncate max-w-[280px]">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                                        <span className="truncate">Responding: {need.respondingParty || need.enRouteVolunteers?.[0]?.name || 'Response Unit Dispatched'}</span>
+                                      </span>
+                                    ) : need.status === 'RESOLVED' ? (
+                                      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-zinc-400 bg-zinc-800/50 px-2 py-0.5 rounded">
+                                        ✓ Resolved
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-300 bg-amber-950/40 border border-amber-800/40 px-2 py-0.5 rounded">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                                        Awaiting Response Unit
+                                      </span>
+                                    )}
+                                    {need.status && (
+                                      <span className="text-[11px] text-[#8B8B94] uppercase tracking-wider font-mono shrink-0">
+                                        {need.status.replace(/_/g, ' ')}
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
                               );
                             })
@@ -992,6 +1410,45 @@ export default function App() {
                                 <span className="px-2.5 py-1 rounded-[6px] bg-[#26262A] text-white font-semibold tabular-nums text-[13px]">
                                   Score {selectedNeed.criticalityScore?.toFixed(0) || 75}
                                 </span>
+                              </div>
+
+                              {/* Response Tracking Status Banner */}
+                              <div className={`p-3 rounded-[8px] border text-[13px] ${
+                                selectedNeed.respondingParty || (selectedNeed.enRouteVolunteers && selectedNeed.enRouteVolunteers.length > 0) || selectedNeed.responseStatus === 'RESPONDING'
+                                  ? 'bg-emerald-950/20 border-emerald-800/40 text-emerald-300'
+                                  : selectedNeed.status === 'RESOLVED'
+                                  ? 'bg-zinc-900 border-zinc-700 text-zinc-300'
+                                  : 'bg-amber-950/20 border-amber-800/40 text-amber-300'
+                              }`}>
+                                <div className="flex items-center justify-between font-medium">
+                                  <span className="flex items-center gap-1.5">
+                                    <span className={`w-2 h-2 rounded-full ${
+                                      selectedNeed.respondingParty || (selectedNeed.enRouteVolunteers && selectedNeed.enRouteVolunteers.length > 0) || selectedNeed.responseStatus === 'RESPONDING'
+                                        ? 'bg-emerald-400 animate-pulse'
+                                        : selectedNeed.status === 'RESOLVED'
+                                        ? 'bg-zinc-400'
+                                        : 'bg-amber-400'
+                                    }`} />
+                                    {selectedNeed.respondingParty || (selectedNeed.enRouteVolunteers && selectedNeed.enRouteVolunteers.length > 0) || selectedNeed.responseStatus === 'RESPONDING'
+                                      ? 'Response Unit Active'
+                                      : selectedNeed.status === 'RESOLVED'
+                                      ? 'Incident Resolved'
+                                      : 'Awaiting Response Unit'}
+                                  </span>
+                                  <span className="text-[11px] opacity-80 uppercase tracking-wider font-mono">
+                                    {selectedNeed.responseStatus || (selectedNeed.enRouteVolunteers && selectedNeed.enRouteVolunteers.length > 0 ? 'RESPONDING' : 'PENDING')}
+                                  </span>
+                                </div>
+                                {(selectedNeed.respondingParty || (selectedNeed.enRouteVolunteers && selectedNeed.enRouteVolunteers.length > 0)) && (
+                                  <div className="mt-1.5 text-[12px] text-white/90">
+                                    Responding: <span className="font-semibold text-white">{selectedNeed.respondingParty || selectedNeed.enRouteVolunteers?.[0]?.name}</span>
+                                    {selectedNeed.enRouteVolunteers?.[0]?.etaMinutes && (
+                                      <span className="ml-2 text-[#8B8B94] font-mono">
+                                        (ETA ~{selectedNeed.enRouteVolunteers[0].etaMinutes}m)
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
                               </div>
 
                               {/* AI Confidence & Reasoning */}
@@ -1451,88 +1908,306 @@ export default function App() {
           </div>
         </div>
       )}
-      {/* SECTOR GATE MODAL (Prompts when entering Command Center) */}
-      {showSectorGate && (
-        <div className="fixed inset-0 z-[2500] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-[#141416] border border-[#26262A] rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-200">
-            <div className="text-center space-y-1.5 pb-2 border-b border-[#26262A]">
-              <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-[#26262A] text-white font-bold text-sm mb-2 shadow-inner">
-                CP
+      {/* ADMIN DEPARTMENT LOGIN & REGISTRATION GATE */}
+      {showAdminLoginModal && (
+        <div className="fixed inset-0 z-[2500] bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#141416] border border-[#26262A] rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-200 max-h-[92vh] overflow-y-auto">
+            {/* Header */}
+            <div className="text-center space-y-1.5 pb-2">
+              <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-tr from-sky-600 to-indigo-600 text-white font-bold text-xl mb-1 shadow-lg shadow-sky-950">
+                🛡️
               </div>
-              <h2 className="text-[18px] font-semibold text-white tracking-tight">
-                Select Command Sector
+              <h2 className="text-[20px] font-semibold text-white tracking-tight">
+                Command Center Secure Access
               </h2>
-              <p className="text-[13px] text-[#8B8B94] max-w-sm mx-auto">
-                Select your operational jurisdiction to focus live incident triage and volunteer dispatch:
+              <p className="text-[13px] text-[#8B8B94] max-w-md mx-auto">
+                Official emergency department & NGO team authentication.
               </p>
             </div>
 
-            {/* Sector list options */}
-            <div className="space-y-2 max-h-[340px] overflow-y-auto pr-1">
-              {sectors.map((sec) => (
-                <button
-                  key={sec.id}
-                  type="button"
-                  onClick={() => handleSelectGateSector(sec.id)}
-                  className="w-full text-left p-3.5 bg-[#0E0E10] hover:bg-[#1A1A1D] border border-[#26262A] hover:border-zinc-500 rounded-xl transition-all group flex items-center justify-between"
-                >
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 group-hover:scale-125 transition-transform" />
-                      <p className="font-semibold text-white text-[14px] group-hover:text-emerald-300 transition-colors">
-                        {sec.name}
-                      </p>
-                    </div>
-                    <p className="text-[12px] text-[#8B8B94] mt-1 tabular-nums pl-4">
-                      Center: {sec.lat.toFixed(4)}, {sec.lng.toFixed(4)} · Radius: {sec.radiusKm} km
-                    </p>
-                  </div>
-                  <span className="text-[12px] text-zinc-400 group-hover:text-white font-medium px-2.5 py-1 rounded-md bg-[#141416] border border-[#26262A] group-hover:border-zinc-500 transition-colors">
-                    Enter &rarr;
-                  </span>
-                </button>
-              ))}
-
-              {/* National Overview Option */}
+            {/* Auth Mode Tabs */}
+            <div className="flex border-b border-[#26262A] text-[13px] font-semibold">
               <button
                 type="button"
-                onClick={() => handleSelectGateSector('ALL')}
-                className="w-full text-left p-3.5 bg-[#0E0E10]/60 hover:bg-[#1A1A1D] border border-dashed border-[#26262A] hover:border-zinc-500 rounded-xl transition-all group flex items-center justify-between"
+                onClick={() => { setAuthTab('signin'); setAuthError(''); }}
+                className={`flex-1 py-2.5 text-center transition-colors border-b-2 cursor-pointer ${
+                  authTab === 'signin' ? 'border-white text-white' : 'border-transparent text-[#8B8B94] hover:text-white'
+                }`}
               >
+                Sign In
+              </button>
+              <button
+                type="button"
+                onClick={() => { setAuthTab('register'); setAuthError(''); }}
+                className={`flex-1 py-2.5 text-center transition-colors border-b-2 cursor-pointer ${
+                  authTab === 'register' ? 'border-white text-white' : 'border-transparent text-[#8B8B94] hover:text-white'
+                }`}
+              >
+                Register Department / NGO
+              </button>
+            </div>
+
+            {/* Error Message */}
+            {authError && (
+              <div className="p-3 rounded-xl bg-red-950/60 border border-red-500/40 text-red-200 text-[12px] flex items-center gap-2">
+                <span>⚠️</span>
+                <span>{authError}</span>
+              </div>
+            )}
+
+            {/* TAB 1: SIGN IN FORM */}
+            {authTab === 'signin' ? (
+              <form onSubmit={handleAdminSignIn} className="space-y-4 text-[13px] pt-1">
                 <div>
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-sky-400" />
-                    <p className="font-semibold text-white text-[14px]">
-                      All Sectors (National Command)
-                    </p>
-                  </div>
-                  <p className="text-[12px] text-[#8B8B94] mt-0.5 pl-4">
-                    View and coordinate incidents across all jurisdictions nationwide.
-                  </p>
+                  <label className="block text-[#8B8B94] font-medium mb-1">
+                    Email ID *
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    value={authEmail}
+                    onChange={(e) => setAuthEmail(e.target.value)}
+                    placeholder="name@agency.gov.in"
+                    className="w-full h-10 bg-[#0E0E10] border border-[#26262A] rounded-xl px-3 text-white text-[14px] focus:outline-none focus:border-white"
+                  />
                 </div>
-                <span className="text-[12px] text-zinc-400 group-hover:text-white font-medium px-2.5 py-1 rounded-md bg-[#141416] border border-[#26262A] transition-colors">
-                  Overview &rarr;
-                </span>
-              </button>
-            </div>
 
-            <div className="pt-2 border-t border-[#26262A] flex items-center justify-between text-[12px]">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowSectorGate(false);
-                  setShowSectorModal(true);
-                }}
-                className="text-[#8B8B94] hover:text-white flex items-center gap-1.5 transition-colors"
-              >
-                <PlusIcon className="w-3.5 h-3.5" />
-                <span>Define custom sector...</span>
-              </button>
+                <div>
+                  <label className="block text-[#8B8B94] font-medium mb-1">
+                    Password *
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    value={authPassword}
+                    onChange={(e) => setAuthPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full h-10 bg-[#0E0E10] border border-[#26262A] rounded-xl px-3 text-white text-[14px] focus:outline-none focus:border-white"
+                  />
+                </div>
 
-              <span className="text-[#8B8B94] text-[11px]">
-                You can change sectors anytime from top bar.
-              </span>
-            </div>
+                <div className="pt-2">
+                  <button
+                    type="submit"
+                    disabled={isAuthLoading}
+                    className="w-full h-11 bg-white hover:bg-zinc-200 text-black font-semibold rounded-xl text-[14px] transition-colors shadow-lg cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {isAuthLoading ? 'Authenticating...' : 'Sign In to Command Center →'}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              /* TAB 2: REGISTER FORM */
+              <form onSubmit={handleAdminRegister} className="space-y-4 text-[13px] pt-1">
+                {/* Credentials */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[#8B8B94] font-medium mb-1">
+                      Email ID (Unique) *
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      value={authEmail}
+                      onChange={(e) => setAuthEmail(e.target.value)}
+                      placeholder="admin@agency.org"
+                      className="w-full h-10 bg-[#0E0E10] border border-[#26262A] rounded-xl px-3 text-white text-[13px] focus:outline-none focus:border-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[#8B8B94] font-medium mb-1">
+                      Password (min 6 chars) *
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      minLength={6}
+                      value={authPassword}
+                      onChange={(e) => setAuthPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full h-10 bg-[#0E0E10] border border-[#26262A] rounded-xl px-3 text-white text-[13px] focus:outline-none focus:border-white"
+                    />
+                  </div>
+                </div>
+
+                {/* Department Category Selection */}
+                <div>
+                  <label className="block text-[#8B8B94] font-medium mb-1.5">
+                    Select Department / Agency Category *
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {DEPARTMENT_CATEGORIES.map((cat) => {
+                      const isSelected = loginDeptCategory === cat.id;
+                      return (
+                        <button
+                          type="button"
+                          key={cat.id}
+                          onClick={() => handleCategorySelect(cat.id)}
+                          className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                            isSelected
+                              ? 'bg-[#1A1A1D] border-white ring-1 ring-white/20'
+                              : 'bg-[#0E0E10] border-[#26262A] hover:border-zinc-500'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-base">{cat.emoji}</span>
+                            <span className="font-semibold text-white text-[12px]">{cat.name}</span>
+                          </div>
+                          <p className="text-[10px] text-[#8B8B94] mt-0.5 line-clamp-1">{cat.desc}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Department / Unit Name */}
+                <div>
+                  <label className="block text-[#8B8B94] font-medium mb-1">
+                    Department / Organization Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={loginDeptName}
+                    onChange={(e) => setLoginDeptName(e.target.value)}
+                    placeholder="e.g. City Fire Station 1, Central Police, Red Cross Society"
+                    className="w-full h-10 bg-[#0E0E10] border border-[#26262A] rounded-xl px-3 text-white text-[13px] focus:outline-none focus:border-white"
+                  />
+                </div>
+
+                {/* Station HQ & 15km Radius */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[#8B8B94] font-medium">Station Base Location *</label>
+                    <span className="text-[11px] text-emerald-400 font-semibold px-2 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/30">
+                      15 km Radius Area
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5">
+                    {['Bagru', 'Jaipur', 'Delhi', 'Mumbai', 'Bengaluru'].map((city) => {
+                      const coords = PLACE_COORDS[city];
+                      const isSelected = loginStationName === city;
+                      return (
+                        <button
+                          key={city}
+                          type="button"
+                          onClick={() => {
+                            setLoginStationName(city);
+                            if (coords) {
+                              setLoginLat(coords[0]);
+                              setLoginLng(coords[1]);
+                            }
+                          }}
+                          className={`px-3 py-1.5 rounded-lg text-[12px] font-medium transition-colors cursor-pointer ${
+                            isSelected
+                              ? 'bg-white text-black font-semibold'
+                              : 'bg-[#0E0E10] border border-[#26262A] text-[#8B8B94] hover:text-white'
+                          }`}
+                        >
+                          {city}
+                        </button>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      onClick={handleDetectAdminGps}
+                      disabled={isDetectingAdminGps}
+                      className="px-3 py-1.5 rounded-lg text-[12px] font-medium bg-[#0E0E10] border border-[#26262A] text-sky-400 hover:text-sky-300 flex items-center gap-1 cursor-pointer"
+                    >
+                      <ArrowPathIcon className={`w-3.5 h-3.5 ${isDetectingAdminGps ? 'animate-spin' : ''}`} />
+                      <span>{isDetectingAdminGps ? 'Detecting...' : 'Use My GPS'}</span>
+                    </button>
+                  </div>
+
+                  <div className="text-[11px] text-[#8B8B94] flex items-center gap-2 pt-1">
+                    <span>HQ: <span className="text-white font-mono">{loginLat.toFixed(4)}, {loginLng.toFixed(4)}</span></span>
+                    <span>•</span>
+                    <span>Operational Area: <span className="text-emerald-400 font-semibold">15 km</span></span>
+                  </div>
+                </div>
+
+                {/* NGO Specific 5-letter Code Setup */}
+                {loginDeptCategory === 'NGO' && (
+                  <div className="p-3.5 bg-emerald-950/30 border border-emerald-500/40 rounded-xl space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-emerald-400 font-semibold text-[13px]">NGO Team Code</span>
+                        <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                          5 Letters
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1 text-[11px]">
+                        <button
+                          type="button"
+                          onClick={() => setIsNgoSignInMode(false)}
+                          className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${!isNgoSignInMode ? 'bg-emerald-500/30 text-white font-semibold' : 'text-emerald-300/70'}`}
+                        >
+                          Register New
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsNgoSignInMode(true)}
+                          className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${isNgoSignInMode ? 'bg-emerald-500/30 text-white font-semibold' : 'text-emerald-300/70'}`}
+                        >
+                          Existing Code
+                        </button>
+                      </div>
+                    </div>
+
+                    {!isNgoSignInMode ? (
+                      <div className="space-y-2">
+                        <p className="text-[11px] text-emerald-200/80">
+                          When your NGO registers, you get a unique 5-letter code. Share this code with your NGO members during volunteer signup so only your team shows in your dashboard:
+                        </p>
+                        <div className="flex items-center gap-3">
+                          <div className="px-3.5 py-1.5 bg-emerald-900/60 border border-emerald-400/50 rounded-xl text-center">
+                            <span className="font-mono text-xl font-black text-emerald-300 tracking-[0.25em]">
+                              {generatedNgoCode}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setGeneratedNgoCode(generate5LetterCode())}
+                            className="text-[11px] text-emerald-400 hover:text-emerald-300 underline underline-offset-2 flex items-center gap-1 cursor-pointer"
+                          >
+                            <ArrowPathIcon className="w-3.5 h-3.5" />
+                            <span>Generate another</span>
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        <label className="text-[11px] text-emerald-200/80 block">
+                          Enter your existing 5-letter NGO team code:
+                        </label>
+                        <input
+                          type="text"
+                          maxLength={5}
+                          placeholder="e.g. ASDCG"
+                          value={loginNgoCodeInput}
+                          onChange={(e) => setLoginNgoCodeInput(e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))}
+                          className="w-full h-9 bg-[#0E0E10] border border-emerald-500/50 rounded-xl px-3 text-emerald-300 font-mono tracking-widest text-base font-bold uppercase focus:outline-none focus:border-emerald-300"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Submit */}
+                <div className="pt-2">
+                  <button
+                    type="submit"
+                    disabled={isAuthLoading}
+                    className="w-full h-11 bg-white hover:bg-zinc-200 text-black font-semibold rounded-xl text-[14px] transition-colors shadow-lg cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {isAuthLoading ? 'Registering Department...' : 'Register Department & Enter →'}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}

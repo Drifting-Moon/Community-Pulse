@@ -1,6 +1,6 @@
 import * as admin from 'firebase-admin';
 import * as crypto from 'crypto';
-import { NeedEntity, VolunteerProfile } from '../shared/types';
+import { NeedEntity, VolunteerProfile, AdminAccount } from '../shared/types';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -193,6 +193,64 @@ class FirebaseDb {
 
   private async seedVolunteers() {
     // No-op: no fake volunteers seeded
+  }
+
+  generateUnique5LetterCode(): string {
+    return mockDb.generateUnique5LetterCode();
+  }
+
+  async addAdminAccount(account: AdminAccount): Promise<void> {
+    if (useMock || !firestore) return mockDb.addAdminAccount(account);
+    try {
+      await firestore.collection('adminAccounts').doc(account.id).set(account);
+    } catch {
+      useMock = true;
+      return mockDb.addAdminAccount(account);
+    }
+  }
+
+  async getAdminAccounts(): Promise<AdminAccount[]> {
+    if (useMock || !firestore) return mockDb.getAdminAccounts();
+    try {
+      const snap = await firestore.collection('adminAccounts').get();
+      return snap.docs.map(d => d.data() as AdminAccount);
+    } catch {
+      useMock = true;
+      return mockDb.getAdminAccounts();
+    }
+  }
+
+  async getAdminAccountById(id: string): Promise<AdminAccount | null> {
+    if (useMock || !firestore) return mockDb.getAdminAccountById(id);
+    try {
+      const doc = await firestore.collection('adminAccounts').doc(id).get();
+      return doc.exists ? (doc.data() as AdminAccount) : null;
+    } catch {
+      useMock = true;
+      return mockDb.getAdminAccountById(id);
+    }
+  }
+
+  async getAdminAccountByNgoCode(code: string): Promise<AdminAccount | null> {
+    if (useMock || !firestore) return mockDb.getAdminAccountByNgoCode(code);
+    try {
+      const snap = await firestore.collection('adminAccounts').where('ngoCode', '==', code.toUpperCase()).limit(1).get();
+      return snap.empty ? null : (snap.docs[0].data() as AdminAccount);
+    } catch {
+      useMock = true;
+      return mockDb.getAdminAccountByNgoCode(code);
+    }
+  }
+
+  async getAdminAccountByEmail(email: string): Promise<AdminAccount | null> {
+    if (useMock || !firestore) return mockDb.getAdminAccountByEmail(email);
+    try {
+      const snap = await firestore.collection('adminAccounts').where('email', '==', email.trim().toLowerCase()).limit(1).get();
+      return snap.empty ? null : (snap.docs[0].data() as AdminAccount);
+    } catch {
+      useMock = true;
+      return mockDb.getAdminAccountByEmail(email);
+    }
   }
 }
 
