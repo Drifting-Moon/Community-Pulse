@@ -488,7 +488,8 @@ app.get(['/admin/auth/accounts', '/api/admin/auth/accounts'], async (req, res) =
 
 app.patch(['/admin/auth/account/:id/code', '/api/admin/auth/account/:id/code'], async (req, res) => {
   try {
-    const { id } = req.params;
+    const rawId = req.params.id;
+    const id = Array.isArray(rawId) ? rawId[0] : String(rawId);
     const { ngoCode } = req.body;
     if (!ngoCode || typeof ngoCode !== 'string' || ngoCode.trim().length !== 5) {
       return res.status(400).json({ error: 'NGO team code must be exactly 5 letters.' });
