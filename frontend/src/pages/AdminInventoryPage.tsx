@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import {
   CheckCircleIcon,
   ExclamationTriangleIcon,
+  ExclamationCircleIcon,
   PlusIcon,
   XMarkIcon
 } from '@heroicons/react/24/outline';
@@ -9,20 +10,67 @@ import type { ReliefSupply } from '../types';
 
 const STORAGE_KEY = 'naturalpulse_admin_supplies';
 
+const INITIAL_RELIEF_SUPPLIES: ReliefSupply[] = [
+  {
+    id: 'sup-1',
+    name: 'Packaged Drinking Water (20L Jerrycans)',
+    category: 'water',
+    quantity: 450,
+    unit: 'Jerrycans',
+    depotName: 'Central Regional Relief Depot',
+    depotCoords: { lat: 28.6139, lng: 77.2090 }
+  },
+  {
+    id: 'sup-2',
+    name: 'High-Calorie Ready Emergency Food Rations',
+    category: 'food',
+    quantity: 1200,
+    unit: 'Meal Packs',
+    depotName: 'Central Regional Relief Depot',
+    depotCoords: { lat: 28.6139, lng: 77.2090 }
+  },
+  {
+    id: 'sup-3',
+    name: 'Advanced Trauma First Aid Kits',
+    category: 'medical',
+    quantity: 180,
+    unit: 'Kits',
+    depotName: 'Civil Lines Emergency Store',
+    depotCoords: { lat: 28.6750, lng: 77.2250 }
+  },
+  {
+    id: 'sup-4',
+    name: 'Motorized Inflatable Rescue Boats (6-person)',
+    category: 'rescue',
+    quantity: 24,
+    unit: 'Boats',
+    depotName: 'Yamuna Riverfront Dispatch Base',
+    depotCoords: { lat: 28.6400, lng: 77.2450 }
+  },
+  {
+    id: 'sup-5',
+    name: 'Weatherproof Emergency Tents & Tarpaulins',
+    category: 'shelter',
+    quantity: 320,
+    unit: 'Tents',
+    depotName: 'South Zone Logistics Hub',
+    depotCoords: { lat: 28.5355, lng: 77.2410 }
+  }
+];
+
 export default function AdminInventoryPage() {
   const [supplies, setSupplies] = useState<ReliefSupply[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          // Purge any legacy mock supplies (sup-1 through sup-7) so inventory has no hardcoded items
-          return parsed.filter((s: ReliefSupply) => !/^sup-[1-7]$/.test(s?.id || ''));
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
         }
       }
-      return [];
+      return INITIAL_RELIEF_SUPPLIES;
     } catch {
-      return [];
+      return INITIAL_RELIEF_SUPPLIES;
     }
   });
 
@@ -85,6 +133,31 @@ export default function AdminInventoryPage() {
   const foodTotal = supplies.filter((s) => s.category === 'food').reduce((acc, s) => acc + s.quantity, 0);
   const medicalTotal = supplies.filter((s) => s.category === 'medical').reduce((acc, s) => acc + s.quantity, 0);
   const rescueTotal = supplies.filter((s) => s.category === 'rescue').reduce((acc, s) => acc + s.quantity, 0);
+
+  const renderStockBadge = (total: number, lowThreshold = 20) => {
+    if (total === 0) {
+      return (
+        <div className="flex items-center gap-1.5 mt-3 text-[13px] text-[#E5383B]">
+          <ExclamationCircleIcon className="w-3.5 h-3.5" />
+          <span>Depleted (0)</span>
+        </div>
+      );
+    }
+    if (total < lowThreshold) {
+      return (
+        <div className="flex items-center gap-1.5 mt-3 text-[13px] text-[#E8A317]">
+          <ExclamationTriangleIcon className="w-3.5 h-3.5" />
+          <span>Low stock ({total})</span>
+        </div>
+      );
+    }
+    return (
+      <div className="flex items-center gap-1.5 mt-3 text-[13px] text-[#2E9E6B]">
+        <CheckCircleIcon className="w-3.5 h-3.5" />
+        <span>Adequate ({total})</span>
+      </div>
+    );
+  };
 
   return (
     <div className="w-full max-w-[1600px] mx-auto px-6 xl:px-8 py-6 space-y-4 font-sans text-[#F2F2F3]">
@@ -150,10 +223,7 @@ export default function AdminInventoryPage() {
               <span className="text-[13px] text-[#8B8B94]">Cans / Units</span>
             </div>
           </div>
-          <div className="flex items-center gap-1.5 mt-3 text-[13px] text-[#2E9E6B]">
-            <CheckCircleIcon className="w-3.5 h-3.5" />
-            <span>OK</span>
-          </div>
+          {renderStockBadge(waterTotal, 50)}
         </div>
 
         {/* Ready rations */}
@@ -167,10 +237,7 @@ export default function AdminInventoryPage() {
               <span className="text-[13px] text-[#8B8B94]">Family Packs</span>
             </div>
           </div>
-          <div className="flex items-center gap-1.5 mt-3 text-[13px] text-[#2E9E6B]">
-            <CheckCircleIcon className="w-3.5 h-3.5" />
-            <span>OK</span>
-          </div>
+          {renderStockBadge(foodTotal, 30)}
         </div>
 
         {/* Medical kits */}
@@ -184,10 +251,7 @@ export default function AdminInventoryPage() {
               <span className="text-[13px] text-[#8B8B94]">Trauma Kits</span>
             </div>
           </div>
-          <div className="flex items-center gap-1.5 mt-3 text-[13px] text-[#2E9E6B]">
-            <CheckCircleIcon className="w-3.5 h-3.5" />
-            <span>OK</span>
-          </div>
+          {renderStockBadge(medicalTotal, 20)}
         </div>
 
         {/* Rescue boats */}
@@ -201,10 +265,7 @@ export default function AdminInventoryPage() {
               <span className="text-[13px] text-[#8B8B94]">Boats</span>
             </div>
           </div>
-          <div className="flex items-center gap-1.5 mt-3 text-[13px] text-[#E8A317]">
-            <ExclamationTriangleIcon className="w-3.5 h-3.5" />
-            <span>Moderate</span>
-          </div>
+          {renderStockBadge(rescueTotal, 5)}
         </div>
       </div>
 

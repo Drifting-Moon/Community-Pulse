@@ -304,6 +304,12 @@ export default function App() {
   const [generatedNgoCode, setGeneratedNgoCode] = useState<string>(() => generate5LetterCode());
   const [isDetectingAdminGps, setIsDetectingAdminGps] = useState<boolean>(false);
 
+  // Manual NGO code edit modal state
+  const [showEditCodeModal, setShowEditCodeModal] = useState<boolean>(false);
+  const [editCodeInput, setEditCodeInput] = useState<string>('');
+  const [editCodeError, setEditCodeError] = useState<string>('');
+  const [isUpdatingCode, setIsUpdatingCode] = useState<boolean>(false);
+
   const handleCategorySelect = (cat: AdminDepartmentCategory) => {
     setLoginDeptCategory(cat);
     if (cat === 'FIRE_DEPT') setLoginDeptName('City Fire & Rescue Station 1');
@@ -457,6 +463,40 @@ export default function App() {
     setAuthPassword('');
     setGeneratedNgoCode(generate5LetterCode());
     setShowAdminLoginModal(true);
+  };
+
+  const handleUpdateNgoCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminAccount?.id) return;
+    const clean = editCodeInput.trim().toUpperCase().replace(/[^A-Z]/g, '');
+    if (clean.length !== 5) {
+      setEditCodeError('NGO Code must be exactly 5 letters (A-Z).');
+      return;
+    }
+    setIsUpdatingCode(true);
+    setEditCodeError('');
+    try {
+      let res;
+      try {
+        res = await axios.patch(`${API_BASE}/api/admin/auth/account/${adminAccount.id}/code`, { ngoCode: clean });
+      } catch (err: any) {
+        if (err.response?.status === 404 && !err.response?.data?.error) {
+          res = await axios.patch(`${API_BASE}/admin/auth/account/${adminAccount.id}/code`, { ngoCode: clean });
+        } else {
+          throw err;
+        }
+      }
+      const updatedAccount = res.data.account;
+      setAdminAccount(updatedAccount);
+      try {
+        localStorage.setItem(ADMIN_STORAGE_KEY, JSON.stringify(updatedAccount));
+      } catch {}
+      setShowEditCodeModal(false);
+    } catch (err: any) {
+      setEditCodeError(err.response?.data?.error || 'Failed to update code. It may already be in use.');
+    } finally {
+      setIsUpdatingCode(false);
+    }
   };
 
   const [selectedSectorId, setSelectedSectorId] = useState<string>(() => {
@@ -1027,9 +1067,24 @@ export default function App() {
                         {adminAccount ? `${adminAccount.stationName} • 15km Radius` : 'Dispatcher'}
                       </p>
                       {adminAccount?.ngoCode && (
-                        <p className="text-[11px] text-emerald-400 font-mono mt-1 font-bold">
-                          NGO Code: {adminAccount.ngoCode}
-                        </p>
+                        <div className="mt-1 flex items-center justify-between">
+                          <p className="text-[11px] text-emerald-400 font-mono font-bold">
+                            NGO Code: {adminAccount.ngoCode}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowAvatarMenu(false);
+                              setEditCodeInput(adminAccount.ngoCode || '');
+                              setEditCodeError('');
+                              setShowEditCodeModal(true);
+                            }}
+                            className="text-[10px] text-emerald-400/90 hover:text-white underline underline-offset-2 cursor-pointer ml-1"
+                          >
+                            Edit
+                          </button>
+                        </div>
                       )}
                     </div>
                     <button
@@ -2236,6 +2291,80 @@ export default function App() {
                 </div>
               </form>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* EDIT NGO TEAM CODE MODAL */}
+      {showEditCodeModal && (
+        <div className="fixed inset-0 z-[2600] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#141416] border border-[#26262A] rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div className="text-center space-y-1.5 pb-2 border-b border-[#26262A]">
+              <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-emerald-950/60 border border-emerald-500/30 text-emerald-400 font-bold text-sm mb-1">
+                NGO
+              </div>
+              <h2 className="text-[18px] font-semibold text-white tracking-tight">
+                Update NGO Team Code
+              </h2>
+              <p className="text-[13px] text-[#8B8B94]">
+                This 5-letter code links new field volunteers to {adminAccount?.departmentName || 'your organization'}.
+              </p>
+            </div>
+
+            {editCodeError && (
+              <div className="p-3 rounded-xl bg-red-950/60 border border-red-500/40 text-red-200 text-[12px] flex items-center gap-2">
+                <span>⚠️</span>
+                <span>{editCodeError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleUpdateNgoCode} className="space-y-4 text-[13px]">
+              <div>
+                <label className="block text-[#8B8B94] font-medium mb-1">
+                  New 5-Letter Code *
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    required
+                    maxLength={5}
+                    value={editCodeInput}
+                    onChange={(e) => setEditCodeInput(e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))}
+                    placeholder="REDCX"
+                    className="w-full h-11 bg-[#0E0E10] border border-[#26262A] focus:border-emerald-400 rounded-xl px-3 text-center text-emerald-300 font-mono tracking-[0.25em] text-xl font-black uppercase focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setEditCodeInput(generate5LetterCode())}
+                    className="h-11 px-3 bg-[#0E0E10] border border-[#26262A] hover:border-zinc-500 rounded-xl text-[12px] text-emerald-400 hover:text-emerald-300 flex items-center gap-1 cursor-pointer shrink-0"
+                    title="Generate a random 5-letter code"
+                  >
+                    <ArrowPathIcon className="w-3.5 h-3.5" />
+                    <span>Random</span>
+                  </button>
+                </div>
+                <p className="text-[11px] text-[#8B8B94] mt-1.5">
+                  Must be exactly 5 uppercase letters (A-Z).
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowEditCodeModal(false)}
+                  className="flex-1 h-10 bg-[#1E1E22] hover:bg-[#26262A] text-white font-medium rounded-xl text-[13px] transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUpdatingCode}
+                  className="flex-1 h-10 bg-emerald-500 hover:bg-emerald-400 text-black font-semibold rounded-xl text-[13px] transition-colors cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isUpdatingCode ? 'Saving...' : 'Save New Code'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
